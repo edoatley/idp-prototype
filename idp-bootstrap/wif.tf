@@ -1,13 +1,21 @@
 # Keyless auth: GitHub Actions OIDC -> Workload Identity Federation -> CI service
 # account. No long-lived service-account keys are ever created or stored.
 
+# google_project_service reports "enabled" before iam.googleapis.com is actually
+# serving, so creating a WIF pool immediately after can race and fail with a
+# transient 403. Wait a short while after enabling APIs before touching WIF.
+resource "time_sleep" "wait_for_apis" {
+  depends_on      = [google_project_service.enabled]
+  create_duration = "60s"
+}
+
 resource "google_iam_workload_identity_pool" "github" {
   project                   = google_project.idp.project_id
   workload_identity_pool_id = "github-pool"
   display_name              = "GitHub Actions Pool"
   description               = "Trusts GitHub Actions OIDC tokens for the IDP repo."
 
-  depends_on = [google_project_service.enabled]
+  depends_on = [time_sleep.wait_for_apis]
 }
 
 resource "google_iam_workload_identity_pool_provider" "github" {
