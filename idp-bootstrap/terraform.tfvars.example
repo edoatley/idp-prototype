@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (gitignored) and adjust as needed.
+project_id      = "idp-prototype-edo"
+project_name    = "EDO IDP Prototype"
+billing_account = "010F10-A51056-E8EC40" # EDO Billing Account
+region          = "europe-west2"          # London
+github_repo     = "edoatley/idp-prototype"
