@@ -1,0 +1,8 @@
+# Platform-wide conventions for the IDP prototype.
+# Single source of truth for values the module, portal, and policies share.
+org_prefix: edo
+default_region: europe-west2      # London
+environments:
+  - dev
+  - test
+  - prod

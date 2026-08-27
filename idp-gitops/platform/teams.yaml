@@ -1,0 +1,48 @@
+# Fictional teams for the IDP prototype.
+# Used to (a) validate `owning_team` on a bucket request and
+# (b) attribute ownership in the inventory / visibility dashboard.
+# All people, emails and handles here are invented for prototyping.
+teams:
+  - id: payments
+    name: Payments
+    email: payments@edo.example
+    members:
+      - name: Ada Okafor
+        role: lead
+        github: ada-okafor
+      - name: Ravi Menon
+        role: engineer
+        github: ravi-menon
+
+  - id: checkout
+    name: Checkout
+    email: checkout@edo.example
+    members:
+      - name: Mei Lin
+        role: lead
+        github: mei-lin
+      - name: Tomas Novak
+        role: engineer
+        github: tomas-novak
+
+  - id: search
+    name: Search & Discovery
+    email: search@edo.example
+    members:
+      - name: Priya Shah
+        role: lead
+        github: priya-shah
+      - name: Ben Carter
+        role: engineer
+        github: ben-carter
+
+  - id: platform
+    name: Platform Engineering
+    email: platform@edo.example
+    members:
+      - name: Edo (you)
+        role: lead
+        github: edoatley
+      - name: Sofia Rossi
+        role: engineer
+        github: sofia-rossi
