@@ -1,0 +1,42 @@
+# --- Terraform ---
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!example.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+.terraform.lock.hcl
+
+# --- Node / portal ---
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.npm
+.eslintcache
+
+# --- Env / secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*-key.json
+gha-creds-*.json
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
