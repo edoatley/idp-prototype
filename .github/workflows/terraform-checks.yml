@@ -1,0 +1,56 @@
+name: terraform-checks
+
+# Credential-free static checks + mock-provider unit tests for all Terraform.
+# No cloud access is needed, so this runs on every PR.
+on:
+  pull_request:
+    paths:
+      - "idp-bootstrap/**"
+      - "idp-gitops/**"
+      - ".tflint.hcl"
+      - ".github/workflows/terraform-checks.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.15.5"
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Add new Terraform roots here as later phases introduce them
+        # (e.g. idp-gitops/modules/gcs-bucket).
+        dir:
+          - idp-bootstrap
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive ${{ matrix.dir }}
+
+      - name: terraform init (no backend)
+        run: terraform -chdir=${{ matrix.dir }} init -backend=false -input=false
+
+      - name: terraform validate
+        run: terraform -chdir=${{ matrix.dir }} validate
+
+      - name: terraform test (mock provider)
+        run: terraform -chdir=${{ matrix.dir }} test
+
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: tflint
+        run: |
+          tflint --chdir=${{ matrix.dir }} --init
+          tflint --chdir=${{ matrix.dir }} --format compact
