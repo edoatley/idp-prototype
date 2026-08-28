@@ -40,6 +40,15 @@ run "defaults_are_compliant" {
     condition     = google_storage_bucket.this.force_destroy == false
     error_message = "Bucket must not be force-destroyable."
   }
+  # lifecycle_rule / action / condition are sets — use one() to read the single element.
+  assert {
+    condition     = one(one(google_storage_bucket.this.lifecycle_rule).action).type == "AbortIncompleteMultipartUpload"
+    error_message = "Bucket must have a lifecycle rule aborting incomplete multipart uploads."
+  }
+  assert {
+    condition     = one(one(google_storage_bucket.this.lifecycle_rule).condition).age == 7
+    error_message = "Incomplete-multipart-upload abort must trigger at age 7 days."
+  }
 
   # --- Mandatory labels ---
   assert {

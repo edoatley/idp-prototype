@@ -20,6 +20,22 @@ For each phase, note: what worked, friction/surprises, time spent, and — most 
 - Phase 4 (day-2: drift + decommission):
 - Phase 5 (visibility & metrics — the headline): _did the oversight/metrics feel valuable? what was missing?_
 
+### Security-scanning backlog (accepted trivy exceptions)
+
+Phase 1 added local + CI security scanning (`trivy config`, alongside `tflint`). The
+findings below are recorded as **deliberate, documented exceptions** in `.trivyignore`
+(scans stay green; any *new* finding fails CI). Revisit as the prototype hardens:
+
+- **GCP-0010 (HIGH) — default network at project level.** `auto_create_network` is
+  create-time only, so it can't be flipped on the live project; real fix is deleting the
+  existing default network out of band. No compute/ingress uses it today.
+- **GCP-0077 (MEDIUM) — state-bucket access logging.** Needs a separate log-sink bucket;
+  fold into Phase 5 centralised visibility/audit.
+- **GCP-0066 (LOW) — CMEK.** Google-managed encryption is sufficient for the prototype;
+  CMEK would add a KMS key ring + IAM to Phase 0.
+- **GCP-0079 (LOW) — project IAM data-access audit logging.** Out of scope for a single
+  throwaway project; admin-activity logs are on by default.
+
 ## Part 2 — Backstage vs thin portal (Phase 6)
 
 Re-implement the golden path on Backstage against the **unchanged** `idp-gitops` backend,
