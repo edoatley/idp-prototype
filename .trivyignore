@@ -1,0 +1,28 @@
+# Trivy accepted-exceptions for the IDP prototype.
+# Each entry is a DELIBERATE, reviewed decision — not a blanket mute. New findings
+# (any rule not listed here) still fail `trivy config` locally and in CI.
+# Revisit these when the prototype hardens beyond Phase 5. See EVALUATION.md backlog.
+
+# GCP-0066 (LOW) — Storage buckets not encrypted with a customer-managed key.
+# Accepted: GCS encrypts at rest with Google-managed keys by default, which is
+# sufficient for a non-production prototype. CMEK would require standing up a
+# KMS key ring + keys + IAM in Phase 0; deferred as future hardening.
+GCP-0066
+
+# GCP-0077 (MEDIUM) — Cloud Storage bucket access logging not enabled (state bucket).
+# Accepted: access logging needs a separate log-sink bucket. The state bucket is
+# already versioned + private (UBLA, public-access-prevention); logging deferred.
+# Backlog: enable when we add centralised audit/visibility (Phase 5).
+GCP-0077
+
+# GCP-0079 (LOW) — Project-level IAM data-access audit logging not configured.
+# Accepted: full audit-log config is out of scope for the prototype's single
+# throwaway project; admin-activity logs are on by default. Deferred.
+GCP-0079
+
+# GCP-0010 (HIGH) — Default network created at project level.
+# Accepted (config-level) for now: the fix (auto_create_network = false) is a
+# CREATE-time-only property, so it cannot be flipped on the already-provisioned
+# project — real remediation is deleting the existing default network out of band.
+# Tracked as a backlog item in EVALUATION.md; no compute/ingress uses it today.
+GCP-0010

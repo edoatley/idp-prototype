@@ -16,6 +16,7 @@ permissions:
 
 env:
   TF_VERSION: "1.15.5"
+  TRIVY_VERSION: "0.74.0"
 
 jobs:
   checks:
@@ -54,3 +55,13 @@ jobs:
         run: |
           tflint --chdir=${{ matrix.dir }} --init
           tflint --chdir=${{ matrix.dir }} --format compact
+
+      - name: install trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b "${RUNNER_TEMP}/bin" v${TRIVY_VERSION}
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+
+      - name: trivy config (misconfig scan)
+        # Honours the repo-root .trivyignore (accepted, documented exceptions).
+        run: trivy config --quiet --exit-code 1 --severity LOW,MEDIUM,HIGH,CRITICAL ${{ matrix.dir }}
