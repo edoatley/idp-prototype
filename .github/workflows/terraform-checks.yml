@@ -23,10 +23,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Add new Terraform roots here as later phases introduce them
-        # (e.g. idp-gitops/modules/gcs-bucket).
+        # Add new Terraform roots here as later phases introduce them.
         dir:
           - idp-bootstrap
+          - idp-gitops/modules/gcs-bucket
     steps:
       - uses: actions/checkout@v4
 
