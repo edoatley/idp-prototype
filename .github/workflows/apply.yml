@@ -1,0 +1,82 @@
+name: apply
+
+# On merge to main, apply the stacks that changed. Authenticates to GCP with
+# keyless Workload Identity Federation (no SA keys). This is the write path that
+# provisions real infrastructure.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "idp-gitops/stacks/**"
+
+permissions:
+  contents: read
+  id-token: write
+
+# Serialise applies so two merges can't race on shared state.
+concurrency:
+  group: apply-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.15.5"
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      stacks: ${{ steps.detect.outputs.stacks }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed stacks
+        id: detect
+        run: |
+          base='${{ github.event.before }}'
+          # First push to a branch reports an all-zero "before"; fall back to the parent.
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base=$(git rev-parse HEAD~1)
+          fi
+          mapfile -t dirs < <(git diff --name-only "$base" "$GITHUB_SHA" -- 'idp-gitops/stacks/' \
+            | awk -F/ 'NF>=4 {print $1"/"$2"/"$3"/"$4}' | sort -u)
+          stacks=()
+          for d in "${dirs[@]}"; do
+            if [ -f "$d/main.tf" ]; then stacks+=("$d"); fi   # ignore deletions (destroy is a separate pipeline)
+          done
+          if [ ${#stacks[@]} -eq 0 ]; then
+            echo "stacks=[]" >> "$GITHUB_OUTPUT"
+          else
+            echo "stacks=$(printf '%s\n' "${stacks[@]}" | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Changed stacks: ${stacks[*]:-none}"
+
+  apply:
+    needs: detect
+    if: needs.detect.outputs.stacks != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # Sequential applies (one shared state bucket); keep it simple and ordered.
+      max-parallel: 1
+      matrix:
+        stack: ${{ fromJson(needs.detect.outputs.stacks) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: terraform init
+        run: terraform -chdir=${{ matrix.stack }} init -input=false
+
+      - name: terraform apply
+        run: terraform -chdir=${{ matrix.stack }} apply -auto-approve -input=false
