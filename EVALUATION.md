@@ -15,6 +15,29 @@ For each phase, note: what worked, friction/surprises, time spent, and — most 
 
 - Phase 0 (GCP + WIF + state):
 - Phase 1 (Terraform golden path + GitOps):
+  - **It worked end to end, first try on live infra.** A hand-written PR planned +
+    commented via `pr.yml`, and on merge `apply.yml` provisioned `edo-dev-platform-demo`
+    through keyless WIF (the Phase 0 smoke test we deferred to here) — UBLA,
+    public-access-prevention=enforced, versioning, multipart-abort lifecycle and all four
+    mandatory labels, with state isolated under its own prefix.
+  - **Where the value landed:** (1) the guardrailed module makes the safe config the *only*
+    config — the developer picks 3 fields, everything else is non-overridable; (2) the PR
+    **plan comment** gives visibility before merge; (3) `metadata.yaml` as the inventory
+    record — the seed of the Phase 5 oversight story. The Terraform+GitOps backend really is
+    portal-agnostic: nothing here assumes a portal.
+  - **Terraform gotchas worth remembering:** validating `owning_team` against `teams.yaml`
+    can't be done in a variable `validation` block (self-contained only) — needed a resource
+    `precondition` reading the file. In tests, `lifecycle_rule`/`action`/`condition` are
+    *sets*, not lists (no `[0]` indexing — use `one()`).
+  - **CI/testing:** `mock_provider` unit tests keep guardrails honest with no cloud/creds;
+    adding `trivy` beside `tflint` gave a security baseline (4 findings triaged as documented
+    exceptions). A review catch — the multipart-abort rule was enforced but untested —
+    reinforced "every guardrail needs a matching assertion."
+  - **Friction:** workflow change-detection needed care (push `before` all-zero SHA, `set -e`
+    with `&&`); couldn't run `actionlint` locally (sandbox blocked its installer), so relied
+    on YAML parse + hand review. Delivered as 4 small PRs (#7 module, #8 security scanning,
+    #9 workflows, #10 first stack) — reviewable, but sequencing mattered (workflows had to be
+    on `main` before the stack PR could exercise them).
 - Phase 2 (policy gate):
 - Phase 3 (thin portal, write path):
 - Phase 4 (day-2: drift + decommission):
