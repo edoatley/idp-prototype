@@ -37,6 +37,7 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "!! '$1' not installed — se
 need terraform
 need tflint
 need trivy
+need conftest
 
 for root in "${ROOTS[@]}"; do
   echo "==================================================================="
@@ -66,5 +67,13 @@ for root in "${ROOTS[@]}"; do
   echo "-- OK: $root"
   echo
 done
+
+# Policy unit tests are repo-global (not per Terraform root), so run once.
+echo "==================================================================="
+echo "== idp-gitops/policy (conftest verify)"
+echo "==================================================================="
+conftest verify --policy idp-gitops/policy
+echo "-- OK: idp-gitops/policy"
+echo
 
 echo "All checks passed."
