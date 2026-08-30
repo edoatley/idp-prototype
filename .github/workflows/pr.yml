@@ -20,6 +20,7 @@ concurrency:
 
 env:
   TF_VERSION: "1.15.5"
+  CONFTEST_VERSION: "0.56.0"
 
 jobs:
   # Emit a JSON array of the stack directories touched by this PR.
@@ -86,8 +87,26 @@ jobs:
           set +e
           terraform -chdir=${{ matrix.stack }} plan -no-color -input=false -out=tfplan 2>&1 | tee /tmp/plan.txt
           code=${PIPESTATUS[0]}
-          # Machine-readable plan for the Phase 2 policy gate; best-effort here.
+          # Machine-readable plan for the policy gate below.
           terraform -chdir=${{ matrix.stack }} show -json tfplan > /tmp/plan.json || true
+          exit $code
+
+      - name: install conftest
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bin"
+          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | tar -xz -C "${RUNNER_TEMP}/bin" conftest
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+
+      - name: policy gate (conftest)
+        id: policy
+        # Independent compliance check on the plan JSON. A deny exits non-zero,
+        # fails this job, and blocks the merge — regardless of how the stack was
+        # authored (module or raw resource).
+        run: |
+          set +e
+          conftest test /tmp/plan.json --policy idp-gitops/policy --no-color 2>&1 | tee /tmp/policy.txt
+          code=${PIPESTATUS[0]}
           exit $code
 
       - name: Comment plan on PR
@@ -98,11 +117,16 @@ jobs:
             const fs = require('fs');
             const stack = '${{ matrix.stack }}';
             const outcome = '${{ steps.plan.outcome }}';
+            const policyOutcome = '${{ steps.policy.outcome }}';
             const marker = `<!-- tf-plan:${stack} -->`;
-            let plan = 'No plan output captured.';
-            try { plan = fs.readFileSync('/tmp/plan.txt', 'utf8'); } catch (e) {}
+            const read = (p, fallback) => { try { return fs.readFileSync(p, 'utf8'); } catch (e) { return fallback; } };
             const max = 60000;
+            let plan = read('/tmp/plan.txt', 'No plan output captured.');
             if (plan.length > max) plan = plan.slice(0, max) + '\n... (truncated)';
+            const policy = read('/tmp/policy.txt', 'Policy gate did not run (plan failed).');
+            const policyLabel = policyOutcome === 'success' ? '✅ PASS'
+              : policyOutcome === 'failure' ? '❌ FAIL — merge blocked'
+              : '⏭️ skipped';
             const body = [
               marker,
               `### Terraform plan — \`${stack}\` (${outcome})`,
@@ -110,6 +134,14 @@ jobs:
               '',
               '```',
               plan,
+              '```',
+              '</details>',
+              '',
+              `### Policy gate — ${policyLabel}`,
+              '<details><summary>conftest output</summary>',
+              '',
+              '```',
+              policy,
               '```',
               '</details>',
             ].join('\n');
