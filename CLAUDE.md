@@ -38,15 +38,19 @@ idp-portal/        # thin custom app: create-bucket form (write) + visibility da
   least-privilege `idp-ci` service account — all applied (see **Current platform state** below).
   The standalone WIF "hello-world" smoke test was intentionally skipped: Phase 1's `apply.yml`
   exercises WIF against a real bucket, which validates the same thing end to end.
-- **Phase 1 — Terraform golden path** ◀ **NEXT — start here**. `idp-gitops/modules/gcs-bucket`
-  (all guardrails + input validation) + per-stack `metadata.yaml` (the inventory record) +
-  `pr.yml`/`apply.yml`. *Exit:* merging a PR provisions a real compliant bucket; state in GCS.
-- **Phase 2 — Policy-as-code gate**. Rego/Conftest against `terraform show -json` in PR CI.
-  *Exit:* a non-compliant PR (e.g. public access) is blocked.
-- **Phase 3 — Thin portal (write path)**. Form (name, owning_team, environment) → generates a
-  stack + `metadata.yaml` → opens the PR. *Exit:* a dev provisions a bucket with no Terraform knowledge.
+- **Phase 1 — Terraform golden path** ✅ **done**. `idp-gitops/modules/gcs-bucket` (all
+  guardrails + input validation), the per-stack pattern (proven by `stacks/dev/platform-demo`
+  + its `metadata.yaml`), and `pr.yml`/`apply.yml`. A merged PR provisioned the real bucket
+  `edo-dev-platform-demo` via WIF, state under its own prefix.
+- **Phase 2 — Policy-as-code gate** ✅ **done**. Rego/Conftest (`idp-gitops/policy/`) against
+  `terraform show -json`, enforced in `pr.yml` and unit-tested (`conftest verify`) in CI. A
+  non-compliant PR (public access) is blocked — proven with a throwaway public-bucket PR.
+- **Phase 3 — Thin portal (write path)** ◀ **NEXT — start here**. Form (name, owning_team,
+  environment) → generates a stack + `metadata.yaml` → opens the PR. *Exit:* a dev provisions a
+  bucket with no Terraform knowledge. (Work summary below.)
 - **Phase 4 — Day-2**. `drift.yml` (scheduled plan flags console changes) + decommission
   (`destroy.yml` + portal delete). *Exit:* drift is surfaced; self-service delete works.
+  (Work summary below.)
 - **Phase 5 — Visibility & metrics** *(the headline)*. Dashboard aggregating inventory +
   ownership, delivery metrics (lead time / success rate from GitHub PR+Actions data), and
   compliance/drift status. *Exit:* one place to see what exists, who owns it, how the platform
@@ -54,9 +58,9 @@ idp-portal/        # thin custom app: create-bucket form (write) + visibility da
 - **Phase 6 — Evaluate/migrate to Backstage**. Re-implement the golden path on Backstage
   against the unchanged `idp-gitops` backend; compare (see `EVALUATION.md`).
 
-## Current platform state (Phase 0 complete)
+## Current platform state (Phases 0–2 complete)
 
-Everything a cold start needs to build Phase 1 without re-deriving context. These are real,
+Everything a cold start needs to build Phase 3 without re-deriving context. These are real,
 already-provisioned values (non-secret — WIF is keyless):
 
 | Thing | Value |
@@ -72,32 +76,58 @@ already-provisioned values (non-secret — WIF is keyless):
 these in workflows, do not hardcode:
 `GCP_PROJECT_ID`, `GCP_REGION`, `TFSTATE_BUCKET`, `GCP_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER`.
 
-## Phase 1 — start here (cold start)
+**Built so far (Phases 1–2)** — the durable artifacts Phase 3 builds on:
 
-Goal: a hand-written PR provisions a real, compliant bucket via GitOps. Build, in order:
+- `idp-gitops/modules/gcs-bucket/` — guardrailed module + `terraform test`/`mock_provider` suite.
+- `idp-gitops/stacks/dev/platform-demo/` — the reference stack (`main.tf` + `metadata.yaml`)
+  and the pattern the portal must generate; its bucket is live.
+- `idp-gitops/policy/` — Rego/Conftest gate + unit tests (`conftest verify`).
+- `.github/workflows/` — `pr.yml` (plan + policy gate + PR comment), `apply.yml` (WIF apply on
+  merge), `terraform-checks.yml` (credential-free `fmt`/`validate`/`test`/`tflint`/`trivy` +
+  `conftest verify`).
+- `scripts/checks.sh` — local mirror of the credential-free CI (needs `terraform`, `tflint`,
+  `trivy`, `conftest`). `.trivyignore` records accepted scanner exceptions (see `EVALUATION.md`).
 
-1. **`idp-gitops/modules/gcs-bucket/`** — the opinionated, guardrailed module. Inputs: `name`,
-   `owning_team` (validate against `platform/teams.yaml`), `environment` (`dev|test|prod`).
-   Enforce (non-overridable): region `europe-west2`, uniform bucket-level access,
-   `public_access_prevention = "enforced"`, versioning on, mandatory labels
-   (`owning-team`, `environment`, `managed-by=idp`, `request-id`), deterministic name
-   `edo-${environment}-${team}-${name}` (lowercased, length/charset validated).
-2. **Per-request stack pattern** `idp-gitops/stacks/<env>/<team>-<name>/`: `main.tf` (calls the
-   module) with a **GCS backend** — bucket `idp-prototype-edo-tfstate`, `prefix =
-   stacks/<env>/<team>-<name>` — plus `metadata.yaml` (owning team, env, type, request-id,
-   requester, created-at = the inventory record). Prove it with one hand-written stack.
-3. **Workflows** `idp-gitops/.github/workflows/`:
-   - `pr.yml` — `fmt`/`validate`/`plan` → `terraform show -json` → comment plan on the PR.
-   - `apply.yml` — on merge, `apply` for changed stacks. Auth with
-     `google-github-actions/auth@v2` using `workload_identity_provider = vars.GCP_WORKLOAD_IDENTITY_PROVIDER`
-     and `service_account = vars.GCP_SERVICE_ACCOUNT`; job needs `permissions: id-token: write`.
-4. **Tests**: add a `terraform test` + `mock_provider` suite for the module's guardrails (mirror
-   `idp-bootstrap/tests/`) and add `idp-gitops/modules/gcs-bucket` to the `terraform-checks`
-   workflow matrix in `.github/workflows/terraform-checks.yml`.
+## Phases 3 & 4 — next (cold start)
 
-*Exit:* merging a hand-written bucket PR applies via WIF and the bucket exists with all
-guardrails; state lands under its prefix in `idp-prototype-edo-tfstate`. Full detail in
-[PRD.md](./PRD.md).
+The GitOps backend (module + stack pattern + `pr`/`apply` + policy gate) is done and
+portal-agnostic. Phase 3 puts a thin app in front of it; Phase 4 adds day-2 operations.
+Full detail in [PRD.md](./PRD.md).
+
+### Phase 3 — Thin portal (write path)
+
+Goal: a developer provisions a compliant bucket with **no Terraform knowledge**. Build:
+
+1. **`idp-portal/`** — a thin custom web app with a **create-bucket form**: `name`,
+   `owning_team` (dropdown sourced from `platform/teams.yaml`), `environment` (`dev|test|prod`).
+   Validate inputs the same way the module does, before generating anything.
+2. **Stack generation** — on submit, generate a per-request stack that *exactly mirrors*
+   `stacks/dev/platform-demo/`: `main.tf` (module call with a generated `request_id`, GCS
+   backend `prefix = stacks/<env>/<team>-<name>`) + `metadata.yaml` (owner/env/type/request-id/
+   requester/created-at). Reuse the reference stack as the template.
+3. **Open the PR** — via the GitHub API: branch, commit the generated files to `idp-gitops`,
+   open the PR, and show the developer the PR link + live CI status. The rest is unchanged —
+   `pr.yml` plans + gates, review, merge, `apply.yml` provisions.
+4. **Identity/secrets** — the portal opens PRs as a GitHub App / token; keep credentials out of
+   the repo (env/secret store). No GCP creds needed in the portal — provisioning stays in CI via WIF.
+
+*Exit:* a dev fills the form and gets a PR that, on merge, provisions a compliant bucket — the
+portal only *generates the same artifacts a human would hand-write*.
+
+### Phase 4 — Day-2 (drift + decommission)
+
+Goal: surface drift and enable self-service teardown. Build:
+
+1. **`drift.yml`** — scheduled (cron) workflow that runs `terraform plan` across **all** stacks
+   and flags any non-empty diff as drift (console/manual changes), reporting via a job summary /
+   issue. Auth via WIF like `apply.yml`.
+2. **`destroy.yml`** — decommission pipeline: when a stack directory is **removed** on merge,
+   run `terraform destroy` for it and clean up its state prefix. Guard against accidental
+   deletion (the module keeps `force_destroy = false`).
+3. **Portal delete** — a delete action in `idp-portal` that opens a PR *removing* the stack dir
+   (GitOps-consistent), which `destroy.yml` actions on merge. Update/retire its `metadata.yaml`.
+
+*Exit:* drift is surfaced on a schedule; a self-service delete removes the bucket + state end to end.
 
 ## Conventions
 
@@ -130,12 +160,22 @@ cd idp-bootstrap && cp terraform.tfvars.example terraform.tfvars
 # Any Terraform dir
 terraform fmt && terraform validate
 terraform test                 # unit tests via mock_provider (no cloud, no creds)
+
+# All credential-free checks at once — mirrors terraform-checks CI
+./scripts/checks.sh            # needs terraform, tflint, trivy, conftest on PATH
+
+# Policy gate (Phase 2)
+conftest verify --policy idp-gitops/policy                                   # policy unit tests
+conftest test <plan.json> --policy idp-gitops/policy                         # evaluate a plan
 ```
 
 ## Testing strategy
 
 - **`terraform test` + `mock_provider "google"`** for guardrail invariants (UBLA, public-access
   prevention, versioning, WIF scope, IAM least-privilege) — fast, credential-free, CI-friendly.
-- **PR CI**: `terraform fmt -check`, `validate`, `tflint`.
-- **Policy gate (Phase 2)**: Conftest/OPA against the plan JSON — the independent second layer;
-  static scanners like tfsec/checkov, if used, belong there, not duplicated in unit tests.
+- **PR CI (credential-free, `terraform-checks.yml`)**: `terraform fmt -check`, `validate`,
+  `terraform test`, `tflint`, `trivy config`, and `conftest verify` (policy unit tests). Mirror
+  it locally with `scripts/checks.sh`.
+- **Policy gate**: Conftest/OPA against the plan JSON — the independent second layer, enforced
+  live in `pr.yml`. Static scanners (`trivy`; tfsec/checkov if added) belong in this layer, not
+  duplicated in the module's unit tests.
