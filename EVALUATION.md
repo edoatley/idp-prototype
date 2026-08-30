@@ -39,6 +39,22 @@ For each phase, note: what worked, friction/surprises, time spent, and — most 
     #9 workflows, #10 first stack) — reviewable, but sequencing mattered (workflows had to be
     on `main` before the stack PR could exercise them).
 - Phase 2 (policy gate):
+  - **The independent gate works and blocks end to end.** A throwaway PR with a raw public
+    bucket that *bypasses the module* planned fine, then the `pr.yml` conftest gate failed
+    with 9 denials (public access, UBLA, versioning, region, all four labels, name prefix) →
+    `plan` check red → merge blocked → nothing applied. The PR comment listed exactly *why*.
+  - **Where the value landed:** defence in depth — the module *prevents* (safe by
+    construction), the gate *detects* (audits the plan). The module's `terraform test` can't
+    catch a stack that doesn't use the module; the gate can. The plan JSON
+    (`resource_changes[].change.after`) is a stable, portal-agnostic contract to police.
+  - **Rego/Conftest gotchas worth remembering:** `conftest verify` needs `--policy <dir>`
+    (a positional path silently fails); modern Conftest is Rego v1 (`import rego.v1`,
+    `deny contains msg if { … }`); `object.union` *deep-merges*, so a test fixture that meant
+    to *drop* a label had to `object.remove` the key first. Install via `brew`/pinned tarball
+    (the sandbox blocks piping install scripts to a shell).
+  - **Cost:** the guardrail list now lives in two places — the module *and* the Rego. That
+    duplication is the point (independent layers), but keeping them in sync is real
+    maintenance; a future phase could generate one from a shared spec.
 - Phase 3 (thin portal, write path):
 - Phase 4 (day-2: drift + decommission):
 - Phase 5 (visibility & metrics — the headline): _did the oversight/metrics feel valuable? what was missing?_
