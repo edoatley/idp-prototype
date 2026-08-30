@@ -17,6 +17,7 @@ permissions:
 env:
   TF_VERSION: "1.15.5"
   TRIVY_VERSION: "0.74.0"
+  CONFTEST_VERSION: "0.56.0"
 
 jobs:
   checks:
@@ -65,3 +66,20 @@ jobs:
       - name: trivy config (misconfig scan)
         # Honours the repo-root .trivyignore (accepted, documented exceptions).
         run: trivy config --quiet --exit-code 1 --severity LOW,MEDIUM,HIGH,CRITICAL ${{ matrix.dir }}
+
+  # Credential-free unit tests for the policy-as-code gate (Phase 2).
+  # Repo-global, so it runs once rather than per Terraform root.
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install conftest
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bin"
+          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | tar -xz -C "${RUNNER_TEMP}/bin" conftest
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+
+      - name: conftest verify (policy unit tests)
+        run: conftest verify --policy idp-gitops/policy

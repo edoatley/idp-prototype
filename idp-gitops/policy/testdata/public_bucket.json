@@ -1,0 +1,22 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "google_storage_bucket.raw",
+      "type": "google_storage_bucket",
+      "name": "raw",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "name": "public-bucket",
+          "location": "US",
+          "uniform_bucket_level_access": false,
+          "public_access_prevention": "inherited",
+          "force_destroy": true,
+          "versioning": [{ "enabled": false }],
+          "labels": {}
+        }
+      }
+    }
+  ]
+}

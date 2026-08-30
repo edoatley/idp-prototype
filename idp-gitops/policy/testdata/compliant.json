@@ -1,0 +1,27 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "module.bucket.google_storage_bucket.this",
+      "type": "google_storage_bucket",
+      "name": "this",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "name": "edo-dev-platform-demo",
+          "location": "EUROPE-WEST2",
+          "uniform_bucket_level_access": true,
+          "public_access_prevention": "enforced",
+          "force_destroy": false,
+          "versioning": [{ "enabled": true }],
+          "labels": {
+            "owning-team": "platform",
+            "environment": "dev",
+            "managed-by": "idp",
+            "request-id": "req-20260829-platform-demo"
+          }
+        }
+      }
+    }
+  ]
+}
