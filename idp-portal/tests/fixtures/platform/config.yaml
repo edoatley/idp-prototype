@@ -1,0 +1,6 @@
+org_prefix: edo
+default_region: europe-west2
+environments:
+  - dev
+  - test
+  - prod
