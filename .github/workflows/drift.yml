@@ -58,6 +58,9 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
+          # The default wrapper swallows `terraform plan -detailed-exitcode`'s
+          # exit code 2 (drift) — disable it so we see the real exit code.
+          terraform_wrapper: false
 
       - name: Authenticate to GCP (Workload Identity Federation)
         uses: google-github-actions/auth@v2
@@ -72,8 +75,9 @@ jobs:
         id: plan
         run: |
           set +e
-          terraform -chdir=${{ matrix.stack }} plan -detailed-exitcode -no-color -input=false 2>&1 | tee /tmp/plan.txt
-          code=${PIPESTATUS[0]}
+          terraform -chdir=${{ matrix.stack }} plan -detailed-exitcode -no-color -input=false > /tmp/plan.txt 2>&1
+          code=$?
+          cat /tmp/plan.txt
           echo "exitcode=$code" >> "$GITHUB_OUTPUT"
           # -detailed-exitcode: 0 = no drift, 2 = drift, 1 = real error.
           if [ "$code" = "1" ]; then exit 1; fi
