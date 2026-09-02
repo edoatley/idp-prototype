@@ -10,14 +10,15 @@ export interface OpenPrResult {
   number: number;
 }
 
-interface GhContext {
+export interface GhContext {
   token: string;
   owner: string;
   repo: string;
   fetchImpl: typeof fetch;
 }
 
-function makeGh({ token, owner, repo, fetchImpl }: GhContext) {
+// Exported for reuse by the read-only aggregation modules (metrics, compliance).
+export function makeGh({ token, owner, repo, fetchImpl }: GhContext) {
   const api = `https://api.github.com/repos/${owner}/${repo}`;
   return async function gh<T>(method: string, path: string, payload?: unknown): Promise<{ status: number; data: T }> {
     const res = await fetchImpl(`${api}${path}`, {
