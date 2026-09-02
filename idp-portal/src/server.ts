@@ -3,7 +3,8 @@ import { loadConfig, type PlatformConfig } from './config';
 import { validate, type BucketRequest, type FieldError } from './validate';
 import { generate } from './generator';
 import { generateRequestId } from './requestId';
-import { openBucketPR } from './github';
+import { openBucketPR, openDecommissionPR } from './github';
+import { listBuckets } from './inventory';
 
 // The thin write-path UI: a form -> validate -> generate stack -> open PR.
 // No GCP creds here; the only secret is the GitHub PAT (GITHUB_TOKEN).
@@ -35,6 +36,7 @@ function renderForm(config: PlatformConfig, values: Partial<BucketRequest & { re
   return page(
     'Request a GCS bucket',
     `<p>Pick three things; the platform enforces the rest and opens a reviewable PR.</p>
+<p><a href="/buckets">View existing buckets →</a></p>
 <form method="post" action="/buckets">
   <label>Bucket name <small>(lowercase, 3–30 chars)</small></label>
   <input name="name" value="${esc(values.name ?? '')}" placeholder="orders">${errFor('name')}
@@ -47,6 +49,41 @@ function renderForm(config: PlatformConfig, values: Partial<BucketRequest & { re
   <button type="submit">Open PR</button>
 </form>`,
   );
+}
+
+function renderInventory(): string {
+  const buckets = listBuckets();
+  if (buckets.length === 0) {
+    return page('Buckets', '<p>No buckets yet.</p><p><a href="/">Request one →</a></p>');
+  }
+  const rows = buckets
+    .map(
+      (b) => `<tr>
+  <td><code>${esc(b.bucketName)}</code></td>
+  <td>${esc(b.owning_team)}</td>
+  <td>${esc(b.environment)}</td>
+  <td>${esc(b.created_at)}</td>
+  <td><form method="post" action="/buckets/decommission" onsubmit="return confirm('Open a PR to decommission ${esc(b.bucketName)}?')">
+    <input type="hidden" name="stackDir" value="${esc(b.stackDir)}">
+    <button type="submit">Decommission</button>
+  </form></td>
+</tr>`,
+    )
+    .join('');
+  return page(
+    'Buckets',
+    `<p><a href="/">← Request a bucket</a></p>
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
+<thead><tr><th>Bucket</th><th>Team</th><th>Env</th><th>Created</th><th></th></tr></thead>
+<tbody>${rows}</tbody></table>`,
+  );
+}
+
+function githubEnv(): { owner: string; repo: string; token: string } | null {
+  const [owner, repo] = (process.env.GITHUB_REPO ?? '').split('/');
+  const token = process.env.GITHUB_TOKEN;
+  if (!owner || !repo || !token) return null;
+  return { owner, repo, token };
 }
 
 export function createApp(): express.Express {
@@ -97,6 +134,39 @@ export function createApp(): express.Express {
       );
     } catch (e) {
       res.status(500).send(page('Error', `<p class="err">${esc((e as Error).message)}</p><p><a href="/">Back</a></p>`));
+    }
+  });
+
+  app.get('/buckets', (_req, res) => res.send(renderInventory()));
+
+  app.post('/buckets/decommission', async (req, res) => {
+    const stackDir = String(req.body.stackDir ?? '').trim();
+    const record = listBuckets().find((b) => b.stackDir === stackDir);
+    if (!record) {
+      return res.status(400).send(page('Error', `<p class="err">Unknown stack: ${esc(stackDir)}</p><p><a href="/buckets">Back</a></p>`));
+    }
+    const gh = githubEnv();
+    if (!gh) {
+      return res.status(500).send(page('Config error', '<p class="err">GITHUB_REPO and GITHUB_TOKEN must be set.</p>'));
+    }
+    try {
+      const pr = await openDecommissionPR({
+        ...gh,
+        branch: `portal/decommission-${record.environment}-${record.stackDir.split('/').pop()}`,
+        stackDir: record.stackDir,
+        title: `Decommission bucket ${record.bucketName}`,
+        body: `Decommission requested via idp-portal.\n\nRemoves \`${record.stackDir}\`; merging runs destroy.yml to tear down \`${record.bucketName}\`.`,
+      });
+      res.send(
+        page(
+          'Decommission PR opened',
+          `<p class="ok">♻️ Opened <a href="${esc(pr.url)}">PR #${pr.number}</a> to decommission <code>${esc(record.bucketName)}</code>.</p>
+<p>Review and merge to destroy via WIF.</p>
+<p><a href="/buckets">Back to buckets</a></p>`,
+        ),
+      );
+    } catch (e) {
+      res.status(500).send(page('Error', `<p class="err">${esc((e as Error).message)}</p><p><a href="/buckets">Back</a></p>`));
     }
   });
 
