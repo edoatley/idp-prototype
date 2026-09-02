@@ -1,0 +1,131 @@
+name: drift
+
+# Scheduled drift detection: plan every stack and flag any that no longer match
+# their Terraform (someone changed a bucket in the console). Drift opens/updates a
+# GitHub Issue per stack and writes a job summary — feeding the oversight view.
+on:
+  schedule:
+    - cron: "17 6 * * *" # daily 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+concurrency:
+  group: drift
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.15.5"
+
+jobs:
+  # Every stack (not just changed ones), unlike apply.yml/pr.yml.
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      stacks: ${{ steps.detect.outputs.stacks }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enumerate stacks
+        id: detect
+        run: |
+          mapfile -t dirs < <(find idp-gitops/stacks -mindepth 2 -maxdepth 2 -type d | sort)
+          stacks=()
+          for d in "${dirs[@]}"; do
+            if [ -f "$d/main.tf" ]; then stacks+=("$d"); fi
+          done
+          if [ ${#stacks[@]} -eq 0 ]; then
+            echo "stacks=[]" >> "$GITHUB_OUTPUT"
+          else
+            echo "stacks=$(printf '%s\n' "${stacks[@]}" | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Stacks: ${stacks[*]:-none}"
+
+  drift:
+    needs: detect
+    if: needs.detect.outputs.stacks != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: ${{ fromJson(needs.detect.outputs.stacks) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: terraform init
+        run: terraform -chdir=${{ matrix.stack }} init -input=false
+
+      - name: terraform plan (detect drift)
+        id: plan
+        run: |
+          set +e
+          terraform -chdir=${{ matrix.stack }} plan -detailed-exitcode -no-color -input=false 2>&1 | tee /tmp/plan.txt
+          code=${PIPESTATUS[0]}
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          # -detailed-exitcode: 0 = no drift, 2 = drift, 1 = real error.
+          if [ "$code" = "1" ]; then exit 1; fi
+          exit 0
+
+      - name: Report drift
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const stack = '${{ matrix.stack }}';
+            const drift = '${{ steps.plan.outputs.exitcode }}' === '2';
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const marker = `<!-- drift:${stack} -->`;
+
+            core.summary.addRaw(`- \`${stack}\`: ${drift ? '⚠️ DRIFT' : '✅ in sync'}\n`);
+            await core.summary.write();
+
+            // Find an existing drift issue for this stack (marker in body).
+            const { data: open } = await github.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
+            const existing = open.find((i) => (i.body ?? '').includes(marker));
+
+            if (!drift) {
+              if (existing) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: `✅ Drift cleared — \`${stack}\` matches Terraform again. [run](${runUrl})` });
+                await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed' });
+              }
+              return;
+            }
+
+            let plan = 'No plan output captured.';
+            try { plan = fs.readFileSync('/tmp/plan.txt', 'utf8'); } catch (e) {}
+            if (plan.length > 55000) plan = plan.slice(0, 55000) + '\n... (truncated)';
+            const body = [
+              marker,
+              `Drift detected on \`${stack}\` — the live resource no longer matches its Terraform.`,
+              '',
+              '<details><summary>terraform plan</summary>',
+              '',
+              '```',
+              plan,
+              '```',
+              '</details>',
+              '',
+              `[Drift run](${runUrl}) · ${new Date().toISOString()}`,
+            ].join('\n');
+            const title = `Drift: ${stack}`;
+
+            if (existing) {
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, title, body, state: 'open' });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body });
+            }
