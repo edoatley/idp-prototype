@@ -56,6 +56,25 @@ For each phase, note: what worked, friction/surprises, time spent, and — most 
     duplication is the point (independent layers), but keeping them in sync is real
     maintenance; a future phase could generate one from a shared spec.
 - Phase 3 (thin portal, write path):
+  - **Self-service works with zero Terraform knowledge.** A form submission (name/team/env)
+    generated a stack that byte-mirrors `platform-demo`, opened a real PR, and flowed through
+    the *same* plan → policy-gate → WIF-apply path — provisioning `edo-dev-checkout-orders`.
+  - **Where the value landed:** the portal is genuinely *thin* — no database, no GCP creds; it
+    only generates the artifacts a human would and opens a PR. The portal-agnostic backend paid
+    off: adding a whole new component required **zero** backend changes. Keeping the generator
+    **pure** (inputs→files) made it trivially unit-testable; the only real risk — generated HCL
+    must be `terraform fmt`-clean or `pr.yml` rejects it — was caught by verifying with
+    `terraform fmt` (block keys are fixed, so alignment is constant across all requests).
+  - **Visibility gap found + closed:** `apply.yml` runs on push to main, so the *provisioning*
+    result never showed on the PR (only the pre-merge plan/gate did). Added an apply → PR
+    audit-trail comment (finds the PR via `listPullRequestsAssociatedWithCommit`). Authoritative
+    trail stays the Actions run + GCP audit logs + `metadata.yaml`; the dashboard (Phase 5)
+    aggregates it.
+  - **Gotchas:** `@octokit/rest` is ESM-only vs our CommonJS — sidestepped with a tiny
+    fetch-based GitHub client (also easier to unit-test via an injected `fetch`). Dependabot
+    bumped vitest 2→4 mid-flight → a `package.json`/lock conflict; regenerated the lockfile,
+    tests passed on v4. Squash-merges mean feature branches aren't ancestors of `main`, so
+    follow-ups must branch off `origin/main`.
 - Phase 4 (day-2: drift + decommission):
 - Phase 5 (visibility & metrics — the headline): _did the oversight/metrics feel valuable? what was missing?_
 
