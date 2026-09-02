@@ -1,0 +1,129 @@
+name: destroy
+
+# Decommission: when a stack directory is REMOVED on merge to main, destroy its
+# resources. Runs on the same push as apply.yml but on the disjoint set of
+# *deleted* stacks (apply handles added/modified). GitOps-consistent: delete = a
+# PR that removes the stack dir.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "idp-gitops/stacks/**"
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write # to post the decommission audit comment
+
+# Share apply.yml's concurrency group so apply and destroy never race on state.
+concurrency:
+  group: apply-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.15.5"
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      stacks: ${{ steps.detect.outputs.stacks }}
+      base: ${{ steps.detect.outputs.base }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect removed stacks
+        id: detect
+        run: |
+          base='${{ github.event.before }}'
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base=$(git rev-parse HEAD~1)
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          # Stacks whose files were deleted and are gone on HEAD.
+          mapfile -t dirs < <(git diff --name-only --diff-filter=D "$base" "$GITHUB_SHA" -- 'idp-gitops/stacks/' \
+            | awk -F/ 'NF>=4 {print $1"/"$2"/"$3"/"$4}' | sort -u)
+          stacks=()
+          for d in "${dirs[@]}"; do
+            if [ ! -f "$d/main.tf" ]; then stacks+=("$d"); fi
+          done
+          if [ ${#stacks[@]} -eq 0 ]; then
+            echo "stacks=[]" >> "$GITHUB_OUTPUT"
+          else
+            echo "stacks=$(printf '%s\n' "${stacks[@]}" | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Removed stacks: ${stacks[*]:-none}"
+
+  destroy:
+    needs: detect
+    if: needs.detect.outputs.stacks != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        stack: ${{ fromJson(needs.detect.outputs.stacks) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: terraform destroy
+        id: destroy
+        # The stack files are gone on HEAD, so restore them from the parent commit
+        # to give Terraform the config (backend + module) it needs to destroy.
+        # force_destroy = false: a non-empty bucket fails here loudly (empty first).
+        run: |
+          git checkout ${{ needs.detect.outputs.base }} -- "${{ matrix.stack }}"
+          terraform -chdir=${{ matrix.stack }} init -input=false
+          terraform -chdir=${{ matrix.stack }} destroy -auto-approve -input=false
+
+      - name: Comment decommission result on the originating PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const stack = '${{ matrix.stack }}';
+            const outcome = '${{ steps.destroy.outcome }}';
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const parts = stack.split('/'); // idp-gitops/stacks/<env>/<team>-<name>
+            const bucket = `edo-${parts[2]}-${parts[3]}`;
+
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner, repo, commit_sha: context.sha,
+            });
+            const pr = prs.find((p) => p.merged_at) ?? prs[0];
+            if (!pr) { core.info('No PR associated with this commit; skipping comment.'); return; }
+
+            const label = outcome === 'success' ? '♻️ Decommissioned' : '❌ Decommission failed';
+            const marker = `<!-- tf-destroy:${stack} -->`;
+            const body = [
+              marker,
+              `### ${label} — \`${stack}\``,
+              outcome === 'success'
+                ? `Destroyed **\`${bucket}\`** and its resources.`
+                : `Destroy failed — a non-empty bucket must be emptied first. See the run.`,
+              '',
+              `- [Destroy run](${runUrl}) · commit \`${context.sha.slice(0, 7)}\` · ${new Date().toISOString()}`,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: pr.number });
+            const existing = comments.find((c) => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+            }
