@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { openBucketPR } from '../src/github';
+import { openBucketPR, openDecommissionPR } from '../src/github';
 import type { GeneratedStack } from '../src/generator';
 
 const stack: GeneratedStack = {
@@ -63,5 +63,35 @@ describe('openBucketPR', () => {
     await expect(
       openBucketPR({ token: 't', owner: 'o', repo: 'r', branch: 'b', stack, title: 't', body: 'b', fetchImpl }),
     ).rejects.toThrow(/already exists/);
+  });
+});
+
+describe('openDecommissionPR', () => {
+  it('opens a PR whose commit deletes the stack files (sha: null)', async () => {
+    const { fetchImpl, calls } = makeFetch([
+      { method: 'GET', match: /\/git\/ref\/heads\/main/, status: 200, body: { object: { sha: 'BASE' } } },
+      { method: 'GET', match: /\/git\/commits\/BASE/, status: 200, body: { tree: { sha: 'BASETREE' } } },
+      { method: 'POST', match: /\/git\/trees/, status: 201, body: { sha: 'NEWTREE' } },
+      { method: 'POST', match: /\/git\/commits/, status: 201, body: { sha: 'NEWCOMMIT' } },
+      { method: 'POST', match: /\/git\/refs/, status: 201, body: {} },
+      { method: 'POST', match: /\/pulls/, status: 201, body: { html_url: 'https://github.com/x/y/pull/7', number: 7 } },
+    ]);
+
+    const result = await openDecommissionPR({
+      token: 't', owner: 'edoatley', repo: 'idp-prototype',
+      branch: 'portal/decommission-dev-checkout-orders',
+      stackDir: 'idp-gitops/stacks/dev/checkout-orders',
+      title: 'Decommission bucket edo-dev-checkout-orders', body: 'b', fetchImpl,
+    });
+
+    expect(result).toEqual({ url: 'https://github.com/x/y/pull/7', number: 7 });
+
+    const treeCall = calls.find((c) => c.url.includes('/git/trees'))!;
+    const entries = (treeCall.body as { tree: Array<{ path: string; sha: string | null }> }).tree;
+    expect(entries.map((e) => e.path).sort()).toEqual([
+      'idp-gitops/stacks/dev/checkout-orders/main.tf',
+      'idp-gitops/stacks/dev/checkout-orders/metadata.yaml',
+    ]);
+    expect(entries.every((e) => e.sha === null)).toBe(true);
   });
 });
