@@ -94,7 +94,22 @@ For each phase, note: what worked, friction/surprises, time spent, and — most 
     `--ref` — invaluable for validating a workflow fix *before* merging. Deleting files via the
     GitHub git-data API = tree entries with `sha: null`. Kept `force_destroy = false` (empty
     buckets only; non-empty fails loudly).
-- Phase 5 (visibility & metrics — the headline): _did the oversight/metrics feel valuable? what was missing?_
+- Phase 5 (visibility & metrics — the headline):
+  - **The oversight payoff, from data the pipeline already produced.** One `/dashboard` page
+    aggregates, on demand and with **no datastore / no GCP creds**: inventory + ownership (from
+    each `metadata.yaml`), delivery (apply success **100% (5/5)**, lead time, recent requests via
+    the GitHub API), and compliance/drift (**policy pass-rate 83% (5/6)**, open drift none).
+  - **Did it feel valuable? Yes — and it's self-evidencing.** The 83% policy pass-rate *is* the
+    guardrail working: the missing run is the deliberately-public PR the gate blocked. Drift
+    Issues feed compliance; `metadata.yaml` is the inventory; PR/Actions timestamps give
+    delivery. Everything the dashboard reads is **portal-agnostic**, so Backstage (Phase 6)
+    could surface the same signals — proving the backend, not the portal, is the durable value.
+  - **What was missing (honest, = the hardening backlog):** lead time is PR opened→merged, not
+    true PR→apply-complete (loose correlation); policy pass-rate is a *proxy* from `pr.yml` run
+    outcomes, not a dedicated policy signal; inventory is desired-state only (no GCP cross-check,
+    so orphaned/manually-created buckets aren't shown); no trends/time-series; metrics are
+    recomputed per request (fine at this scale). None block the "can I see what exists, who owns
+    it, how we're doing, and are we compliant?" question — which is answered.
 
 ### Security-scanning backlog (accepted trivy exceptions)
 
