@@ -76,6 +76,24 @@ For each phase, note: what worked, friction/surprises, time spent, and — most 
     tests passed on v4. Squash-merges mean feature branches aren't ancestors of `main`, so
     follow-ups must branch off `origin/main`.
 - Phase 4 (day-2: drift + decommission):
+  - **Day-2 works as GitOps, end to end.** `drift.yml` (scheduled + on-demand) planned every
+    stack; disabling versioning out of band opened a `Drift:` Issue with the plan, and reverting
+    auto-closed it. `destroy.yml` decommissioned a stack on removal (`checkout-orders` → 404)
+    with a `♻️ Decommissioned` comment, while `apply.yml` correctly *skipped* on the same push
+    (disjoint sets). The portal now closes the loop: it lists buckets from `metadata.yaml` and a
+    Decommission button opens the removal PR. Apply also gained a `✅ Applied` audit comment (#23).
+  - **Where the value landed:** oversight became *concrete and actionable* — drift is a
+    self-closing Issue, and every provision/decommission leaves an audit comment on the PR where
+    it was requested. The full create → apply → list → decommission → destroy loop is
+    self-service over GitOps with the *same* guardrails throughout.
+  - **Gotchas worth remembering:** `hashicorp/setup-terraform`'s default wrapper **swallows
+    `plan -detailed-exitcode`'s exit code 2** — set `terraform_wrapper: false` (the drift demo
+    is what surfaced this). Destroying a removed stack needs the config **restored from the
+    parent commit** (`git checkout <before> -- <dir>`), since it's gone on HEAD. `workflow_dispatch`
+    only lists workflows on the default branch, but you can run a fix branch's version with
+    `--ref` — invaluable for validating a workflow fix *before* merging. Deleting files via the
+    GitHub git-data API = tree entries with `sha: null`. Kept `force_destroy = false` (empty
+    buckets only; non-empty fails loudly).
 - Phase 5 (visibility & metrics — the headline): _did the oversight/metrics feel valuable? what was missing?_
 
 ### Security-scanning backlog (accepted trivy exceptions)
