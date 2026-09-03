@@ -12,7 +12,7 @@ portal → a GitOps PR → Terraform apply → a real, compliant bucket, plus a 
 exists, who owns it, how the platform performs, and whether things stay compliant.
 
 Guiding principles:
-- **Thin custom portal first**, Backstage evaluated/migrated later (Phase 6).
+- **Thin custom portal first**; Backstage evaluation *deferred/optional* (see Phases).
 - **Terraform + GitHub GitOps backend is portal-agnostic** — the durable investment.
 - **Minimal, opinionated golden path**: the platform enforces the safe defaults; devs pick very little.
 - **Keyless** GCP auth (Workload Identity Federation); no long-lived service-account keys, ever.
@@ -29,6 +29,7 @@ idp-gitops/        # portal-agnostic source of truth
   policy/          # Rego policies for the Conftest gate (Phase 2)
   .github/workflows/  # pr / apply / drift / destroy pipelines
 idp-portal/        # thin custom app: create-bucket form (write) + visibility dashboard (read)
+docs/walkthrough/  # Phase 6: guided, screenshot-rich tour of the whole build
 ```
 
 ## Phases
@@ -51,17 +52,22 @@ idp-portal/        # thin custom app: create-bucket form (write) + visibility da
 - **Phase 4 — Day-2** ✅ **done**. `drift.yml` (scheduled plan → auto-opening/closing a `Drift:`
   Issue), `destroy.yml` (destroy on stack removal, disjoint from apply), and a portal
   decommission action; apply/destroy post audit comments on the PR. Proven end to end.
-- **Phase 5 — Visibility & metrics** *(the headline)* ◀ **NEXT — start here**. Dashboard
-  aggregating inventory + ownership, delivery metrics (lead time / success rate from GitHub
-  PR+Actions data), and compliance/drift status. *Exit:* one place to see what exists, who owns
-  it, how the platform performs, and whether it's compliant. (Work summary below.)
-- **Phase 6 — Evaluate/migrate to Backstage**. Re-implement the golden path on Backstage
-  against the unchanged `idp-gitops` backend; compare (see `EVALUATION.md`).
+- **Phase 5 — Visibility & metrics** *(the headline)* ✅ **done**. `idp-portal` `/dashboard`
+  aggregates inventory + ownership (`metadata.yaml`), delivery metrics (apply success rate + lead
+  time from the GitHub API) and compliance/drift (policy pass-rate + open `Drift:` Issues) — on
+  demand, no datastore, no GCP creds.
+- **Phase 6 — Guided walkthrough & showcase** ◀ **NEXT — start here**. A step-by-step
+  walkthrough of the whole build (commands + links + screenshots) to understand/showcase it end
+  to end. Scaffold lives in [`docs/walkthrough/`](./docs/walkthrough/README.md); the capture pass
+  = run each step and drop screenshots into `images/`. (Cold-start runbook below.)
+- **Backstage** — *deferred / optional* (was the old Phase 6). Re-implement the golden path on
+  Backstage against the unchanged `idp-gitops` backend and score it vs the thin portal
+  (`EVALUATION.md` Part 2). Not currently scheduled.
 
-## Current platform state (Phases 0–4 complete)
+## Current platform state (Phases 0–5 complete)
 
-Everything a cold start needs to build Phase 5 without re-deriving context. These are real,
-already-provisioned values (non-secret — WIF is keyless):
+Everything a cold start needs for the Phase 6 walkthrough without re-deriving context. These are
+real, already-provisioned values (non-secret — WIF is keyless):
 
 | Thing | Value |
 |---|---|
@@ -76,43 +82,44 @@ already-provisioned values (non-secret — WIF is keyless):
 these in workflows, do not hardcode:
 `GCP_PROJECT_ID`, `GCP_REGION`, `TFSTATE_BUCKET`, `GCP_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER`.
 
-**Built so far (Phases 1–4)** — the durable artifacts Phase 5 aggregates/builds on:
+**Built so far (Phases 1–5)** — the durable artifacts the walkthrough tours:
 
 - `idp-gitops/modules/gcs-bucket/` — guardrailed module + `terraform test`/`mock_provider` suite.
 - `idp-gitops/stacks/<env>/<team>-<name>/` — per-request stacks; each `metadata.yaml` is the
   inventory record (only `stacks/dev/platform-demo/` is live right now). **This is the read
   source for the Phase 5 dashboard.**
 - `idp-gitops/policy/` — Rego/Conftest gate + unit tests (`conftest verify`).
-- `idp-portal/` — thin Node/TypeScript app: create-bucket form + decommission action
-  (`src/generator.ts`, `github.ts`, `inventory.ts`, `server.ts`). Reads `platform/*`; opens PRs
-  with a GitHub PAT (`GITHUB_TOKEN`); no GCP creds. **Phase 5's dashboard is the read side of this app.**
+- `idp-portal/` — thin Node/TypeScript app: create-bucket form + decommission action + the
+  `/dashboard` oversight view (`src/generator.ts`, `github.ts`, `inventory.ts`, `metrics.ts`,
+  `compliance.ts`, `server.ts`). Reads `platform/*`; opens PRs with a GitHub PAT (`GITHUB_TOKEN`);
+  no GCP creds.
 - `.github/workflows/` — `pr.yml` (plan + policy gate + comment), `apply.yml` (WIF apply +
   audit comment), `drift.yml` (scheduled drift → Issue), `destroy.yml` (decommission +
   audit comment), `terraform-checks.yml` + `portal-checks.yml` (credential-free CI).
 - `scripts/checks.sh` — local mirror of the credential-free CI (needs `terraform`, `tflint`,
   `trivy`, `conftest`). `.trivyignore` records accepted scanner exceptions (see `EVALUATION.md`).
 
-## Phase 5 — next (cold start)
+## Phase 6 — the capture pass (cold start)
 
-The headline: the **read/oversight side** of the portal — one place to see what exists, who
-owns it, how the platform is performing, and whether it's compliant. Kept lightweight:
-**aggregate on demand from existing sources** (the GitOps repo, the GitHub API, optionally GCP),
-**no new datastore**. It's a new view in `idp-portal/` on top of the data Phases 1–4 populate.
-Full detail in [PRD.md](./PRD.md).
+Goal: produce a screenshot-rich, step-by-step walkthrough of the working platform. The narrative,
+commands and links are **already written** in [`docs/walkthrough/`](./docs/walkthrough/README.md)
+— this phase is the *capture pass*: run each step, take the screenshot, save it to
+`docs/walkthrough/images/` with the filename in the placeholder, and commit.
 
-Three panels:
+1. Start at [`docs/walkthrough/README.md`](./docs/walkthrough/README.md) — prerequisites +
+   TOC (7 pages: foundations → module → portal → PR/gate → apply/audit → dashboard → day-2).
+2. Work each page top to bottom: **Do this** (run the command / open the link) → screenshot →
+   drop into `images/<NN-name>.png` (the `![caption](…)` already references it).
+3. Only `edo-dev-platform-demo` is live; steps needing a fresh artifact offer a "re-run to
+   capture" path or a reference permalink to the original PR/run.
+4. For the portal + dashboard steps, run locally with the `GITHUB_TOKEN` from `.env` and
+   `GITHUB_REPO=edoatley/idp-prototype` (see the walkthrough pages).
 
-1. **Inventory + ownership** — every provisioned resource with team, env, type, request-id,
-   created-at. Source: each stack's `metadata.yaml` (reuse `idp-portal/src/inventory.ts`),
-   optionally cross-checked against live GCP.
-2. **Delivery metrics** — requests over time, **lead time** (PR opened → apply succeeded) and
-   apply success/failure rate. Source: GitHub PR timestamps + Actions run conclusions/durations
-   via the GitHub API (the audit comments from `apply.yml`/`destroy.yml` help correlate).
-3. **Compliance / drift** — policy-gate pass/fail and current drift status per resource.
-   Source: `pr.yml` policy-gate results + the open/closed `Drift:` Issues from `drift.yml`.
+*Exit:* the walkthrough reads end to end with real screenshots — the platform is understandable
+and showcase-ready from the repo alone.
 
-*Exit:* one dashboard answers what exists, who owns it, how the platform performs, and whether
-it's compliant — all from sources already being populated, proving the oversight value.
+> **Note:** the `/dashboard` step needs PR #36 merged; the Phase 4/5 learnings docs are PRs
+> #32/#36 — merge those so the walkthrough's dashboard step works against `main`.
 
 ## Conventions
 

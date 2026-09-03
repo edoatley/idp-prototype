@@ -11,6 +11,10 @@ whether things stay compliant.
 See **[PRD.md](./PRD.md)** for the full design and **[EVALUATION.md](./EVALUATION.md)** for
 the running learnings log.
 
+**See the platform in action:** a step-by-step, screenshot-rich tour lives in
+**[docs/walkthrough/](./docs/walkthrough/README.md)** — foundations → module → portal → policy
+gate → apply → dashboard → day-2.
+
 ## Approach at a glance
 - **Thin custom portal** first (disposable); **Backstage** evaluated/migrated in a later phase.
 - **Terraform + GitHub-based GitOps** backend — deliberately **portal-agnostic** (the durable investment).
