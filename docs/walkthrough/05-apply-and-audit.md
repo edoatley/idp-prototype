@@ -7,14 +7,26 @@ closed and auditable.
 
 ## Do this
 
-Merge the PR from step 3. Then watch:
+Merge the PR from step 3:
+
+![PR merged](images/pr-merged.png)
+
+Then watch:
 
 ```bash
 gh run watch $(gh run list --workflow=apply.yml --limit 1 --json databaseId --jq '.[0].databaseId')
 ```
 
 - The **apply run** (`detect` → `apply (…stack…)`).
+
+We can see the [apply run](https://github.com/edoatley/idp-prototype/actions/runs/33771581795) here:
+
+![apply-bucket](images/apply-bucket.png)
+
 - The **`✅ Applied`** comment `apply.yml` adds to the PR (bucket name, outputs, run link).
+
+![PR-applied-comment](images/PR-applied-comment.png)
+
 - The **live bucket**:
 
 ```bash
@@ -22,6 +34,13 @@ gcloud storage buckets describe gs://edo-dev-<team>-<name> \
   --format="value(name,location,uniform_bucket_level_access,public_access_prevention,versioning_enabled)"
 ```
 
+giving
+
+```bash
+gcloud storage buckets describe gs://edo-dev-payments-discounts \
+  --format="value(name,location,uniform_bucket_level_access,public_access_prevention,versioning_enabled)"
+edo-dev-payments-discounts	EUROPE-WEST2	True	enforced	True
+```
 ## What's happening & why
 
 On merge to `main`, `apply.yml` detects the changed stack, authenticates via **keyless WIF**, and
@@ -30,12 +49,6 @@ runs `terraform apply`. State lands under the stack's own prefix in `idp-prototy
 *push* (not the PR), it finds the originating PR and posts an **audit comment** — so "what was
 provisioned, by which run" is visible where the request was made. The authoritative trail remains
 the immutable Actions run + GCP audit logs + `metadata.yaml`.
-
-![apply.yml run — provisioning via WIF](images/05-apply-run.png)
-
-![The ✅ Applied audit comment on the PR (bucket + outputs + run link)](images/05-apply-comment.png)
-
-![The live bucket — UBLA / public-access-prevention=enforced / versioning / labels](images/05-live-bucket.png)
 
 ## Reference links
 

@@ -33,11 +33,7 @@ Everything here is **portal-agnostic** (metadata, PRs, Actions, Issues), so a fu
 front-end could surface the same signals — proving the backend, not the portal, is the durable
 value.
 
-![Dashboard — inventory & ownership panel](images/06-dashboard-inventory.png)
-
-![Dashboard — delivery metrics (apply success rate, lead time, recent requests)](images/06-dashboard-delivery.png)
-
-![Dashboard — compliance & drift (policy pass-rate + open drift)](images/06-dashboard-compliance.png)
+![dashboard](images/dashboard.png)
 
 ## Reference links
 

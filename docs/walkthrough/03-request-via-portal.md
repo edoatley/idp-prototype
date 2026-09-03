@@ -11,16 +11,28 @@ hand-write and opens a PR.
 ```bash
 cd idp-portal && npm ci
 # from the repo root, load the token and run the portal:
-set -a; . ./.env; set +a
+source ../.env
 export GITHUB_REPO=edoatley/idp-prototype
 npm run dev        # http://localhost:3000
 ```
 
-Open `http://localhost:3000`, pick a **name**, **owning team** (dropdown from `teams.yaml`) and
-**environment**, add your GitHub handle, and submit. The portal shows a link to the PR it opened.
+Open `http://localhost:3000` and you should get:
+
+![idp-local-1.png](images/idp-local-1.png)
+
+Now pick a **name**, **owning team** (dropdown from `teams.yaml`) and **environment**, add your 
+GitHub handle, and submit. The portal shows a link to the PR it opened:
+
+![idp-local-2](images/idp-local-2.png).
 
 > To capture a clean end-to-end run, choose a fresh name (e.g. `search` / `dev` / `index`); you
 > can decommission it later in step 7.
+
+The resulting [PR](https://github.com/edoatley/idp-prototype/pull/39) looks like this:
+
+![idp-local-3](images/idp-local-3.png)
+
+
 
 ## What's happening & why
 
@@ -30,9 +42,24 @@ record), and **opens a PR** via the GitHub API — a single commit on a `portal/
 the whole write path: the portal produces artifacts, and the *backend* (CI + Terraform + WIF) does
 the rest. Because the backend is portal-agnostic, the portal added zero backend changes.
 
-![The create-bucket form (team + env dropdowns sourced from platform config)](images/03-portal-form.png)
+The terrafom extract below was in the PR:
 
-![The PR the portal opened, adding the generated stack files](images/03-portal-pr.png)
+
+```hcl
+module "bucket" {
+  source = "../../../modules/gcs-bucket"
+
+  name        = "discounts"
+  owning_team = "payments"
+  environment = "dev"
+  request_id  = "req-20260903-payments-discounts-z0of"
+}
+
+output "bucket_name" {
+  description = "Name of the provisioned bucket."
+  value       = module.bucket.bucket_name
+}
+```
 
 ## Reference links
 
