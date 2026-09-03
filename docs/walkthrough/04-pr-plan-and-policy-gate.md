@@ -10,12 +10,19 @@ gate** before anyone merges.
 Open the PR from step 3 (or any stack PR) and look at:
 
 - **Checks**: `detect`, `plan (…stack…)`, plus `terraform-checks` and `policy`.
+
+![pr-checks](images/pr-checks.png)
+
 - The **sticky comment** from `pr.yml`: a `Terraform plan` section and a **`Policy gate — ✅ PASS`**
   section showing the conftest output.
+
+![pr-comment](images/pr-comment.png)
 
 Then see the gate **block** a bad change — open the deliberately non-compliant demo PR
 [#14](https://github.com/edoatley/idp-prototype/pull/14): its `plan` check is **red** and the
 comment shows **`Policy gate — ❌ FAIL`** with the denials.
+
+![blocked-pr](images/blocked-pr.png)
 
 ## What's happening & why
 
@@ -25,10 +32,6 @@ policies re-check every guardrail (public access, UBLA, versioning, region, labe
 stack that bypasses the module by calling the raw resource is **still caught**. Module = *prevent*;
 policy gate = *detect*. A deny fails the job → the PR can't merge. The result is posted on the PR,
 so reviewers see *why*.
-
-![PR checks + the plan/policy-gate sticky comment (PASS)](images/04-pr-plan-pass.png)
-
-![PR #14 — Policy gate ❌ FAIL blocking a public bucket, with the denials](images/04-policy-gate-fail.png)
 
 ## Reference links
 

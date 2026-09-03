@@ -20,9 +20,51 @@ state later lives in.
 
 - **GCP project** — open the console: `gcloud projects describe idp-prototype-edo`, or the
   [console dashboard](https://console.cloud.google.com/home/dashboard?project=idp-prototype-edo).
+
+```terminaloutput
+createTime: '2026-08-27T15:20:48.563Z'
+labels:
+  component: bootstrap
+  goog-terraform-provisioned: 'true'
+  managed-by: idp
+lifecycleState: ACTIVE
+name: EDO IDP Prototype
+projectId: idp-prototype-edo
+projectNumber: '734077548565'
+```
+
 - **Keyless WIF** — the [Workload Identity pool](https://console.cloud.google.com/iam-admin/workload-identity-pools?project=idp-prototype-edo)
   (`github-pool` → `github-provider`) trusting GitHub Actions OIDC, scoped to this repo.
+
+Example:
+
+![images/wif-screenshot.png](images/wif-screenshot.png)
+
 - **State bucket** — `gcloud storage buckets describe gs://idp-prototype-edo-tfstate`.
+
+```terminaloutput
+creation_time: 2026-08-27T15:21:46+0000
+default_storage_class: STANDARD
+generation: 1787844105930928765
+labels:
+  component: tfstate
+  goog-terraform-provisioned: 'true'
+  managed-by: idp
+location: EUROPE-WEST2
+location_type: region
+metageneration: 1
+name: idp-prototype-edo-tfstate
+public_access_prevention: enforced
+satisfies_pzs: true
+soft_delete_policy:
+  effectiveTime: '2026-08-27T15:21:46.438000+00:00'
+  retentionDurationSeconds: '604800'
+storage_url: gs://idp-prototype-edo-tfstate/
+uniform_bucket_level_access: true
+update_time: 2026-08-27T15:21:46+0000
+versioning_enabled: true
+```
+
 - **Repo variables** — GitHub → the repo → Settings → Secrets and variables → Actions →
   **Variables**: `GCP_PROJECT_ID`, `GCP_REGION`, `TFSTATE_BUCKET`, `GCP_SERVICE_ACCOUNT`,
   `GCP_WORKLOAD_IDENTITY_PROVIDER`.
@@ -35,12 +77,6 @@ temporary credentials, and only for *this* repository. Nothing long-lived to lea
 CI service account holds least privilege (`roles/storage.admin`) for the bucket use-case. The
 bootstrap outputs are published as **repo variables** (not secrets) because none of them are
 sensitive — which is itself a consequence of going keyless.
-
-![GCP project dashboard for idp-prototype-edo](images/01-gcp-project.png)
-
-![Workload Identity pool + provider (github-pool / github-provider), scoped to the repo](images/01-wif-pool.png)
-
-![GitHub Actions repository variables (GCP_PROJECT_ID, WIF provider, etc.)](images/01-repo-variables.png)
 
 ## Reference links
 

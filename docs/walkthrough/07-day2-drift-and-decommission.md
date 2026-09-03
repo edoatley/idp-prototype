@@ -12,16 +12,34 @@ one-click PR.
 ```bash
 # introduce out-of-band drift on the live bucket (safely reversible):
 gcloud storage buckets update gs://edo-dev-platform-demo --no-versioning
-gh workflow run drift.yml          # or wait for the daily schedule
+⠹Updating gs://edo-dev-platform-demo/...                                       
+  Completed 1            
 ```
 
-Watch the run, then open the **`Drift: …platform-demo`** Issue it creates. Revert and re-run to
-watch it auto-close:
+then:
+```bash
+gh workflow run drift.yml          # or wait for the daily schedule
+✓ Created workflow_dispatch event for drift.yml at main
+https://github.com/edoatley/idp-prototype/actions/runs/33772344609
+```
+
+![drift-1](images/drift-1.png)
+
+
+Watch the run, then open the **`Drift: …platform-demo`** Issue it creates:
+
+![drift-2](images/drift-2.png)
+
+Revert and re-run to watch it auto-close:
 
 ```bash
-gcloud storage buckets update gs://edo-dev-platform-demo --versioning
-gh workflow run drift.yml
+    gcloud storage buckets update gs://edo-dev-platform-demo --versioning
+    gh workflow run drift.yml
 ```
+
+closes here:
+
+![drift-3](images/drift-3.png)
 
 ### What's happening & why
 
@@ -30,18 +48,28 @@ someone changed a resource outside Terraform. Drift opens/updates a per-stack Gi
 plan and closes it when the stack is back in sync — turning drift into something actionable that
 also feeds the compliance panel.
 
-![The Drift: Issue opened by drift.yml, with the plan](images/07-drift-issue.png)
-
 ## Decommission
 
 ### Do this
 
-In the portal, open `http://localhost:3000/buckets`, click **Decommission** on a bucket → it opens
-a removal PR. Merge it and watch `destroy.yml`:
+In the portal, open `http://localhost:3000/buckets` click **Decommission** on bucket `edo-dev-payments-discounts`:
+to raise the [PR](https://github.com/edoatley/idp-prototype/pull/42):
+
+![decom-1](images/decom-1.png)
+
+which we can merge:
+
+![decom-2](images/decom-2.png)
+
+Merge it and watch `destroy.yml` on completion we will see a comment on the PR:
+
+![decom-3](images/decom-3.png)
 
 ```bash
 gh run watch $(gh run list --workflow=destroy.yml --limit 1 --json databaseId --jq '.[0].databaseId')
-gcloud storage buckets describe gs://edo-dev-<team>-<name>   # expect: 404 not found
+gcloud storage buckets describe gs://edo-dev-payments-discounts   # expect: 404 not found
+# expect: 404 not found
+ERROR: (gcloud.storage.buckets.describe) gs://edo-dev-payments-discounts not found: 404.
 ```
 
 ### What's happening & why
@@ -51,10 +79,6 @@ git-data API). On merge, `destroy.yml` detects the *removed* stack — disjoint 
 which handles added/modified — restores the config from the parent commit (Terraform needs it to
 destroy), runs `terraform destroy` via WIF, and posts a **`♻️ Decommissioned`** comment.
 `force_destroy = false` means a non-empty bucket fails loudly rather than losing data.
-
-![The portal decommission → removal PR (file deletions)](images/07-decommission-pr.png)
-
-![destroy.yml run + the ♻️ Decommissioned comment; bucket now 404](images/07-destroy-run.png)
 
 ## Reference links
 

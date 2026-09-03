@@ -22,11 +22,120 @@ cd idp-gitops/modules/gcs-bucket
 terraform init -backend=false && terraform test    # mock_provider — no cloud, no creds
 ```
 
+giving
+
+```terminaloutput
+Terraform has been successfully initialized!
+
+You may now begin working with Terraform. Try running "terraform plan" to see
+any changes that are required for your infrastructure. All Terraform commands
+should now work.
+
+If you ever set or change modules or backend configuration for Terraform,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.
+tests/gcs-bucket.tftest.hcl... in progress
+  run "defaults_are_compliant"... pass
+  run "rejects_unknown_team"... pass
+  run "rejects_invalid_environment"... pass
+  run "rejects_invalid_name"... pass
+tests/gcs-bucket.tftest.hcl... tearing down
+tests/gcs-bucket.tftest.hcl... pass
+
+Success! 4 passed, 0 failed.
+```
+
 Then skim the enforcement in [`main.tf`](../../idp-gitops/modules/gcs-bucket/main.tf), and run
 the full credential-free suite from the repo root:
 
 ```bash
 ./scripts/checks.sh    # fmt / validate / test / tflint / trivy / conftest verify
+```
+
+giving
+
+```terminaloutput
+===================================================================
+== idp-bootstrap
+===================================================================
+-- terraform fmt
+-- terraform init (no backend)
+-- terraform validate
+Success! The configuration is valid.
+
+-- terraform test (mock provider)
+tests/bootstrap.tftest.hcl... in progress
+  run "defaults_are_compliant"... pass
+  run "rejects_invalid_github_repo"... pass
+  run "rejects_invalid_project_id"... pass
+tests/bootstrap.tftest.hcl... tearing down
+tests/bootstrap.tftest.hcl... pass
+
+Success! 3 passed, 0 failed.
+-- tflint
+-- trivy config (misconfig scan; honours .trivyignore)
+
+Report Summary
+
+┌──────────┬───────────┬───────────────────┐
+│  Target  │   Type    │ Misconfigurations │
+├──────────┼───────────┼───────────────────┤
+│ .        │ terraform │         0         │
+├──────────┼───────────┼───────────────────┤
+│ main.tf  │ terraform │         0         │
+├──────────┼───────────┼───────────────────┤
+│ state.tf │ terraform │         0         │
+└──────────┴───────────┴───────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+-- OK: idp-bootstrap
+
+===================================================================
+== idp-gitops/modules/gcs-bucket
+===================================================================
+-- terraform fmt
+-- terraform init (no backend)
+-- terraform validate
+Success! The configuration is valid.
+
+-- terraform test (mock provider)
+tests/gcs-bucket.tftest.hcl... in progress
+  run "defaults_are_compliant"... pass
+  run "rejects_unknown_team"... pass
+  run "rejects_invalid_environment"... pass
+  run "rejects_invalid_name"... pass
+tests/gcs-bucket.tftest.hcl... tearing down
+tests/gcs-bucket.tftest.hcl... pass
+
+Success! 4 passed, 0 failed.
+-- tflint
+-- trivy config (misconfig scan; honours .trivyignore)
+
+Report Summary
+
+┌─────────┬───────────┬───────────────────┐
+│ Target  │   Type    │ Misconfigurations │
+├─────────┼───────────┼───────────────────┤
+│ .       │ terraform │         0         │
+├─────────┼───────────┼───────────────────┤
+│ main.tf │ terraform │         0         │
+└─────────┴───────────┴───────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+-- OK: idp-gitops/modules/gcs-bucket
+
+===================================================================
+== idp-gitops/policy (conftest verify)
+===================================================================
+
+10 tests, 10 passed, 0 warnings, 0 failures, 0 exceptions, 0 skipped
+-- OK: idp-gitops/policy
+
+All checks passed.
 ```
 
 ## What's happening & why
@@ -36,10 +145,6 @@ CI-friendly — asserting each guardrail is actually wired so a future edit can'
 it. This is the "prevent" half of a two-layer model (the policy gate in step 4 is the independent
 "detect" half). `scripts/checks.sh` is the exact set of gates CI runs, so you can catch
 everything before pushing.
-
-![terraform test — all guardrail assertions passing](images/02-terraform-test.png)
-
-![scripts/checks.sh green across module + policy (fmt/validate/test/tflint/trivy/conftest)](images/02-checks-green.png)
 
 ## Reference links
 
