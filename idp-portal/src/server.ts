@@ -4,7 +4,9 @@ import { validate, type BucketRequest, type FieldError } from './validate';
 import { generate } from './generator';
 import { generateRequestId } from './requestId';
 import { openBucketPR, openDecommissionPR } from './github';
-import { listBuckets } from './inventory';
+import { listBuckets, type BucketRecord } from './inventory';
+import { deliveryMetrics, type DeliveryMetrics } from './metrics';
+import { compliance, type Compliance } from './compliance';
 
 // The thin write-path UI: a form -> validate -> generate stack -> open PR.
 // No GCP creds here; the only secret is the GitHub PAT (GITHUB_TOKEN).
@@ -18,8 +20,10 @@ function page(title: string, inner: string): string {
 <style>body{font-family:system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem}
 label{display:block;margin:1rem 0 .25rem;font-weight:600}input,select{width:100%;padding:.5rem;font-size:1rem}
 button{margin-top:1.5rem;padding:.6rem 1.2rem;font-size:1rem}.err{color:#b00020}.ok{color:#0a7d28}
-code{background:#f2f2f2;padding:.1rem .3rem;border-radius:3px}</style></head><body>
-<h1>Request a GCS bucket</h1>${inner}</body></html>`;
+code{background:#f2f2f2;padding:.1rem .3rem;border-radius:3px}
+table{border-collapse:collapse;width:100%;margin:.5rem 0}th,td{text-align:left;padding:.4rem .6rem}
+h2{margin-top:2rem;border-bottom:1px solid #ddd;padding-bottom:.25rem}</style></head><body>
+<h1>${esc(title)}</h1>${inner}</body></html>`;
 }
 
 function renderForm(config: PlatformConfig, values: Partial<BucketRequest & { requester: string }> = {}, errors: FieldError[] = []): string {
@@ -36,7 +40,7 @@ function renderForm(config: PlatformConfig, values: Partial<BucketRequest & { re
   return page(
     'Request a GCS bucket',
     `<p>Pick three things; the platform enforces the rest and opens a reviewable PR.</p>
-<p><a href="/buckets">View existing buckets →</a></p>
+<p><a href="/buckets">View existing buckets →</a> · <a href="/dashboard">Oversight dashboard →</a></p>
 <form method="post" action="/buckets">
   <label>Bucket name <small>(lowercase, 3–30 chars)</small></label>
   <input name="name" value="${esc(values.name ?? '')}" placeholder="orders">${errFor('name')}
@@ -76,6 +80,56 @@ function renderInventory(): string {
 <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
 <thead><tr><th>Bucket</th><th>Team</th><th>Env</th><th>Created</th><th></th></tr></thead>
 <tbody>${rows}</tbody></table>`,
+  );
+}
+
+const pct = (n: number | null): string => (n == null ? '—' : `${Math.round(n * 100)}%`);
+const mins = (n: number | null): string => (n == null ? '—' : `${n} min`);
+
+function renderDashboard(buckets: BucketRecord[], metrics: DeliveryMetrics | null, comp: Compliance | null, note: string): string {
+  const invRows = buckets.length
+    ? buckets
+        .map(
+          (b) => `<tr><td><code>${esc(b.bucketName)}</code></td><td>${esc(b.owning_team)}</td><td>${esc(b.environment)}</td><td>${esc(b.type)}</td><td>${esc(b.created_at)}</td></tr>`,
+        )
+        .join('')
+    : '<tr><td colspan="5">No buckets.</td></tr>';
+
+  const delivery = metrics
+    ? `<ul>
+  <li>Apply success rate: <strong>${pct(metrics.applySuccessRate)}</strong> (${metrics.applySuccess}/${metrics.applyRuns} completed apply runs)</li>
+  <li>Median lead time (PR opened → merged): <strong>${mins(metrics.medianLeadTimeMins)}</strong></li>
+</ul>
+${
+  metrics.recent.length
+    ? `<table border="1" cellpadding="6"><thead><tr><th>PR</th><th>Request</th><th>Lead time</th></tr></thead><tbody>${metrics.recent
+        .map(
+          (r) => `<tr><td><a href="${esc(r.url)}">#${r.number}</a></td><td>${esc(r.title)}</td><td>${mins(r.leadTimeMins)}</td></tr>`,
+        )
+        .join('')}</tbody></table>`
+    : '<p>No request PRs yet.</p>'
+}`
+    : '<p><em>Delivery metrics need <code>GITHUB_TOKEN</code> + <code>GITHUB_REPO</code>.</em></p>';
+
+  const complianceHtml = comp
+    ? `<ul>
+  <li>Policy pass-rate (pr.yml runs): <strong>${pct(comp.policyPassRate)}</strong> (${comp.policyPass}/${comp.policyRuns})</li>
+  <li>Open drift: <strong>${comp.openDrift.length === 0 ? '✅ none' : `⚠️ ${comp.openDrift.length}`}</strong></li>
+</ul>
+${comp.openDrift.length ? `<ul>${comp.openDrift.map((d) => `<li><a href="${esc(d.url)}"><code>${esc(d.stack)}</code></a></li>`).join('')}</ul>` : ''}`
+    : '<p><em>Compliance needs <code>GITHUB_TOKEN</code> + <code>GITHUB_REPO</code>.</em></p>';
+
+  return page(
+    'Oversight dashboard',
+    `<p><a href="/">← Request a bucket</a> · <a href="/buckets">Buckets</a></p>
+${note ? `<p class="err">${esc(note)}</p>` : ''}
+<h2>Inventory &amp; ownership</h2>
+<table border="1" cellpadding="6"><thead><tr><th>Bucket</th><th>Team</th><th>Env</th><th>Type</th><th>Created</th></tr></thead><tbody>${invRows}</tbody></table>
+<h2>Delivery metrics</h2>
+${delivery}
+<h2>Compliance &amp; drift</h2>
+${complianceHtml}
+<p><small>Aggregated on demand from the GitOps repo + GitHub API — no datastore. Lead time = PR opened→merged; policy pass-rate proxies the gate via pr.yml run outcomes.</small></p>`,
   );
 }
 
@@ -138,6 +192,29 @@ export function createApp(): express.Express {
   });
 
   app.get('/buckets', (_req, res) => res.send(renderInventory()));
+
+  app.get('/dashboard', async (_req, res) => {
+    const buckets = listBuckets();
+    const gh = githubEnv();
+    if (!gh) {
+      return res.send(renderDashboard(buckets, null, null, 'Set GITHUB_TOKEN + GITHUB_REPO to see delivery + compliance metrics.'));
+    }
+    // Aggregate on demand; keep each panel resilient so one API hiccup doesn't blank the page.
+    let metrics: DeliveryMetrics | null = null;
+    let comp: Compliance | null = null;
+    let note = '';
+    try {
+      metrics = await deliveryMetrics(gh);
+    } catch (e) {
+      note += `Delivery metrics unavailable: ${(e as Error).message}. `;
+    }
+    try {
+      comp = await compliance(gh);
+    } catch (e) {
+      note += `Compliance unavailable: ${(e as Error).message}.`;
+    }
+    res.send(renderDashboard(buckets, metrics, comp, note));
+  });
 
   app.post('/buckets/decommission', async (req, res) => {
     const stackDir = String(req.body.stackDir ?? '').trim();
