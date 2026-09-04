@@ -31,18 +31,7 @@ jobs:
 
       - name: Enumerate stacks
         id: detect
-        run: |
-          mapfile -t dirs < <(find idp-gitops/stacks -mindepth 2 -maxdepth 2 -type d | sort)
-          stacks=()
-          for d in "${dirs[@]}"; do
-            if [ -f "$d/main.tf" ]; then stacks+=("$d"); fi
-          done
-          if [ ${#stacks[@]} -eq 0 ]; then
-            echo "stacks=[]" >> "$GITHUB_OUTPUT"
-          else
-            echo "stacks=$(printf '%s\n' "${stacks[@]}" | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
-          fi
-          echo "Stacks: ${stacks[*]:-none}"
+        run: .github/scripts/detect-stacks.sh --all
 
   drift:
     needs: detect
@@ -85,51 +74,13 @@ jobs:
 
       - name: Report drift
         if: always()
+        # Writes the job summary and opens/updates/closes this stack's
+        # 'Drift: <stack>' Issue — the signal the portal's compliance panel reads.
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
-            const stack = '${{ matrix.stack }}';
-            const drift = '${{ steps.plan.outputs.exitcode }}' === '2';
-            const { owner, repo } = context.repo;
-            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const marker = `<!-- drift:${stack} -->`;
+            const report = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/report-drift.js`);
+            await report({ github, context, core,
+              stack: '${{ matrix.stack }}',
+              exitCode: '${{ steps.plan.outputs.exitcode }}' });
 
-            core.summary.addRaw(`- \`${stack}\`: ${drift ? '⚠️ DRIFT' : '✅ in sync'}\n`);
-            await core.summary.write();
-
-            // Find an existing drift issue for this stack (marker in body).
-            const { data: open } = await github.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
-            const existing = open.find((i) => (i.body ?? '').includes(marker));
-
-            if (!drift) {
-              if (existing) {
-                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: `✅ Drift cleared — \`${stack}\` matches Terraform again. [run](${runUrl})` });
-                await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed' });
-              }
-              return;
-            }
-
-            let plan = 'No plan output captured.';
-            try { plan = fs.readFileSync('/tmp/plan.txt', 'utf8'); } catch (e) {}
-            if (plan.length > 55000) plan = plan.slice(0, 55000) + '\n... (truncated)';
-            const body = [
-              marker,
-              `Drift detected on \`${stack}\` — the live resource no longer matches its Terraform.`,
-              '',
-              '<details><summary>terraform plan</summary>',
-              '',
-              '```',
-              plan,
-              '```',
-              '</details>',
-              '',
-              `[Drift run](${runUrl}) · ${new Date().toISOString()}`,
-            ].join('\n');
-            const title = `Drift: ${stack}`;
-
-            if (existing) {
-              await github.rest.issues.update({ owner, repo, issue_number: existing.number, title, body, state: 'open' });
-            } else {
-              await github.rest.issues.create({ owner, repo, title, body });
-            }

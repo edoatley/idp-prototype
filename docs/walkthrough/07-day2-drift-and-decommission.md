@@ -12,19 +12,25 @@ one-click PR.
 ```bash
 # introduce out-of-band drift on the live bucket (safely reversible):
 gcloud storage buckets update gs://edo-dev-platform-demo --no-versioning
-⠹Updating gs://edo-dev-platform-demo/...                                       
-  Completed 1            
+```
+
+```terminaloutput
+⠹Updating gs://edo-dev-platform-demo/...
+  Completed 1
 ```
 
 then:
+
 ```bash
 gh workflow run drift.yml          # or wait for the daily schedule
+```
+
+```terminaloutput
 ✓ Created workflow_dispatch event for drift.yml at main
 https://github.com/edoatley/idp-prototype/actions/runs/33772344609
 ```
 
 ![drift-1](images/drift-1.png)
-
 
 Watch the run, then open the **`Drift: …platform-demo`** Issue it creates:
 
@@ -33,8 +39,8 @@ Watch the run, then open the **`Drift: …platform-demo`** Issue it creates:
 Revert and re-run to watch it auto-close:
 
 ```bash
-    gcloud storage buckets update gs://edo-dev-platform-demo --versioning
-    gh workflow run drift.yml
+gcloud storage buckets update gs://edo-dev-platform-demo --versioning
+gh workflow run drift.yml
 ```
 
 closes here:

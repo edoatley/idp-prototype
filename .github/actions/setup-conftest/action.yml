@@ -1,0 +1,25 @@
+name: setup-conftest
+description: Install a pinned conftest onto the runner PATH.
+
+# The policy gate runs in two places — the live gate in pr.yml and the policy
+# unit tests in terraform-checks.yml — and both need the same version. Pinning
+# it here keeps one copy of the version rather than one per workflow.
+
+inputs:
+  version:
+    description: conftest release to install
+    required: false
+    default: "0.56.0"
+
+runs:
+  using: composite
+  steps:
+    - name: install conftest ${{ inputs.version }}
+      shell: bash
+      run: |
+        mkdir -p "${RUNNER_TEMP}/bin"
+        curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${VERSION}/conftest_${VERSION}_Linux_x86_64.tar.gz" \
+          | tar -xz -C "${RUNNER_TEMP}/bin" conftest
+        echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+      env:
+        VERSION: ${{ inputs.version }}

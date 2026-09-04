@@ -20,10 +20,10 @@ Open `http://localhost:3000` and you should get:
 
 ![idp-local-1.png](images/idp-local-1.png)
 
-Now pick a **name**, **owning team** (dropdown from `teams.yaml`) and **environment**, add your 
+Now pick a **name**, **owning team** (dropdown from `teams.yaml`) and **environment**, add your
 GitHub handle, and submit. The portal shows a link to the PR it opened:
 
-![idp-local-2](images/idp-local-2.png).
+![idp-local-2](images/idp-local-2.png)
 
 > To capture a clean end-to-end run, choose a fresh name (e.g. `search` / `dev` / `index`); you
 > can decommission it later in step 7.
@@ -32,18 +32,20 @@ The resulting [PR](https://github.com/edoatley/idp-prototype/pull/39) looks like
 
 ![idp-local-3](images/idp-local-3.png)
 
-
-
 ## What's happening & why
 
-On submit the portal **validates** (mirroring the module), **generates** a stack that byte-mirrors
-`stacks/dev/platform-demo/` (`main.tf` calling the module + `metadata.yaml`, the inventory
-record), and **opens a PR** via the GitHub API — a single commit on a `portal/*` branch. That's
-the whole write path: the portal produces artifacts, and the *backend* (CI + Terraform + WIF) does
-the rest. Because the backend is portal-agnostic, the portal added zero backend changes.
+On submit the portal **validates** (mirroring the module), **generates** a stack indistinguishable
+from a hand-written one (`main.tf` calling the module + `metadata.yaml`, the inventory record),
+and **opens a PR** via the GitHub API — a single commit on a `portal/*` branch. That's the whole
+write path: the portal produces artifacts, and the *backend* (CI + Terraform + WIF) does the rest.
+Because the backend is portal-agnostic, the portal added zero backend changes.
 
-The terrafom extract below was in the PR:
+> **Want the mechanism rather than the tour?**
+> [`docs/portal-to-terraform.md`](../portal-to-terraform.md) has the complete generated files,
+> where the templates live (and why they are inline literals), the branch/commit/PR naming
+> contracts, the six-call git-data API sequence, and the known sharp edges.
 
+The Terraform extract below was in the PR:
 
 ```hcl
 module "bucket" {

@@ -39,8 +39,12 @@ giving
 ```bash
 gcloud storage buckets describe gs://edo-dev-payments-discounts \
   --format="value(name,location,uniform_bucket_level_access,public_access_prevention,versioning_enabled)"
+```
+
+```terminaloutput
 edo-dev-payments-discounts	EUROPE-WEST2	True	enforced	True
 ```
+
 ## What's happening & why
 
 On merge to `main`, `apply.yml` detects the changed stack, authenticates via **keyless WIF**, and
