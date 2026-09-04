@@ -6,8 +6,6 @@ The headline: one page answering *what exists, who owns it, how the platform per
 it's compliant* — aggregated **on demand** from sources the pipeline already populates. No new
 datastore, no GCP creds.
 
-> Requires PR #36 on `main` (the dashboard page). If `/dashboard` 404s, merge #36 first.
-
 ## Do this
 
 ```bash

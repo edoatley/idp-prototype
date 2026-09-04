@@ -27,9 +27,13 @@ idp-gitops/        # portal-agnostic source of truth
   modules/         # opinionated, guardrailed Terraform modules (Phase 1+)
   stacks/          # per-request Terraform stacks (generated), each with its own state prefix
   policy/          # Rego policies for the Conftest gate (Phase 2)
-  .github/workflows/  # pr / apply / drift / destroy pipelines
 idp-portal/        # thin custom app: create-bucket form (write) + visibility dashboard (read)
+.github/
+  workflows/       # pr / apply / drift / destroy + the credential-free check pipelines
+  scripts/         # the shell + github-script code those workflows delegate to
+  actions/         # small composite actions (setup-conftest)
 docs/walkthrough/  # Phase 6: guided, screenshot-rich tour of the whole build
+docs/portal-to-terraform.md  # reference: how a portal request becomes Terraform
 ```
 
 ## Phases
@@ -86,8 +90,8 @@ these in workflows, do not hardcode:
 
 - `idp-gitops/modules/gcs-bucket/` — guardrailed module + `terraform test`/`mock_provider` suite.
 - `idp-gitops/stacks/<env>/<team>-<name>/` — per-request stacks; each `metadata.yaml` is the
-  inventory record (only `stacks/dev/platform-demo/` is live right now). **This is the read
-  source for the Phase 5 dashboard.**
+  inventory record (only `stacks/dev/payments-discounts/` is live right now; `platform-demo`
+  was decommissioned in #41). **This is the read source for the Phase 5 dashboard.**
 - `idp-gitops/policy/` — Rego/Conftest gate + unit tests (`conftest verify`).
 - `idp-portal/` — thin Node/TypeScript app: create-bucket form + decommission action + the
   `/dashboard` oversight view (`src/generator.ts`, `github.ts`, `inventory.ts`, `metrics.ts`,
@@ -95,9 +99,17 @@ these in workflows, do not hardcode:
   no GCP creds.
 - `.github/workflows/` — `pr.yml` (plan + policy gate + comment), `apply.yml` (WIF apply +
   audit comment), `drift.yml` (scheduled drift → Issue), `destroy.yml` (decommission +
-  audit comment), `terraform-checks.yml` + `portal-checks.yml` (credential-free CI).
-- `scripts/checks.sh` — local mirror of the credential-free CI (needs `terraform`, `tflint`,
-  `trivy`, `conftest`). `.trivyignore` records accepted scanner exceptions (see `EVALUATION.md`).
+  audit comment), `terraform-checks.yml` + `portal-checks.yml` + `workflow-checks.yml`
+  (credential-free CI).
+- `.github/scripts/` — the code the workflows delegate to, so the YAML stays readable:
+  `detect-stacks.sh` (which stacks a run acts on) and `gh-comment.js` + `report-*.js` (the
+  sticky PR comments and drift Issues). The `report-*.js` modules are CommonJS and
+  **dependency-free** — nothing `npm install`s them on the runner.
+- `scripts/checks.sh` — local mirror of the credential-free Terraform CI (needs `terraform`,
+  `tflint`, `trivy`, `conftest`). `.trivyignore` records accepted scanner exceptions (see
+  `EVALUATION.md`).
+- `scripts/lint-workflows.sh` — local mirror of `workflow-checks` (needs `actionlint`,
+  `shellcheck`, `node`).
 
 ## Phase 6 — the capture pass (cold start)
 
@@ -154,7 +166,10 @@ terraform fmt && terraform validate
 terraform test                 # unit tests via mock_provider (no cloud, no creds)
 
 # All credential-free checks at once — mirrors terraform-checks CI
-./scripts/checks.sh            # needs terraform, tflint, trivy, conftest on PATH
+./scripts/checks.sh            # needs terraform, tflint, trivy, conftest
+
+# Lint the CI machinery itself — mirrors workflow-checks CI
+./scripts/lint-workflows.sh    # needs actionlint, shellcheck, node on PATH
 
 # Policy gate (Phase 2)
 conftest verify --policy idp-gitops/policy                                   # policy unit tests
