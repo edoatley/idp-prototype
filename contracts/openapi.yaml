@@ -1,0 +1,698 @@
+openapi: 3.1.0
+
+info:
+  title: IDP Platform API
+  version: 1.0.0
+  summary: Self-service provisioning for the internal developer platform.
+  description: |
+    The programmatic surface of the IDP golden path. Anything the portal UI can do, an
+    automated process or a CLI can do here — request a bucket, inspect what exists, change
+    the few mutable settings, and decommission.
+
+    ## Everything is a change request
+
+    The platform is GitOps: state lives in the `idp-gitops` repo, not in this service, and
+    nothing is provisioned by an API call alone. Every write therefore returns **202 Accepted**
+    with a `Request` — an auditable change moving through review, the policy gate and apply.
+    Poll `GET /v1/requests/{requestId}` (or use `idp request status --wait`) to follow it.
+
+    Pull requests are the current mechanism, deliberately not the contract: clients see
+    `Request` and its `status`, never git or GitHub concepts, so the mechanism can change
+    without breaking them.
+
+    ## Authentication
+
+    Writes require a GitHub token as a bearer credential. The service holds no credentials of
+    its own: it acts **as the caller**, so authorization is whatever the caller's GitHub
+    permissions on the GitOps repo already allow, and the resulting change is attributed to
+    the real human or bot. Reads that only touch the repo working tree are open; reads that
+    aggregate the GitHub API (`/v1/metrics`, `/v1/compliance`) need the same bearer token.
+
+    No GCP credentials are involved anywhere: provisioning happens in CI via keyless Workload
+    Identity Federation.
+  contact:
+    name: Platform Engineering
+    email: platform@edo.example
+
+servers:
+  - url: http://localhost:3000
+    description: Local development (the portal serves the UI and this API from one process)
+
+tags:
+  - name: buckets
+    description: The GCS bucket golden path — the platform's first self-service capability.
+  - name: requests
+    description: Change requests in flight, and how they ended.
+  - name: catalog
+    description: The platform conventions a client needs to build a valid request.
+  - name: oversight
+    description: Delivery metrics and compliance — the same aggregates the dashboard shows.
+
+security:
+  - githubToken: []
+
+paths:
+  /v1/buckets:
+    get:
+      operationId: listBuckets
+      summary: List buckets
+      description: |
+        The inventory, read straight from the GitOps repo: every stack's `metadata.yaml`. There
+        is no database — the repo *is* the inventory, so this can never disagree with what is
+        actually declared.
+      tags: [buckets]
+      security: []
+      parameters:
+        - name: environment
+          in: query
+          description: Only buckets in this environment.
+          schema: { $ref: '#/components/schemas/Environment' }
+        - name: team
+          in: query
+          description: Only buckets owned by this team id.
+          schema: { type: string, examples: [checkout] }
+      responses:
+        '200':
+          description: The matching buckets.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [buckets]
+                properties:
+                  buckets:
+                    type: array
+                    items: { $ref: '#/components/schemas/Bucket' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+    post:
+      operationId: createBucket
+      summary: Request a new bucket
+      description: |
+        Generates the Terraform stack a human would have hand-written and opens it as a change
+        request. Nothing is provisioned until the request is reviewed, passes the policy gate
+        and is merged.
+
+        The bucket name is **derived**, not chosen: `edo-{environment}-{owningTeam}-{name}`.
+      tags: [buckets]
+      parameters:
+        - $ref: '#/components/parameters/DryRun'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BucketCreate' }
+      responses:
+        '202': { $ref: '#/components/responses/RequestAccepted' }
+        '200': { $ref: '#/components/responses/DryRun' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: |
+            A bucket with this derived name already exists, or another change request is
+            already in flight against it.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/buckets/{bucketId}:
+    parameters:
+      - $ref: '#/components/parameters/BucketId'
+    get:
+      operationId: describeBucket
+      summary: Describe a bucket
+      description: |
+        The full record: ownership and provenance, the guardrails the platform enforces on it,
+        the settings that can be changed, and any change request currently in flight.
+      tags: [buckets]
+      security: []
+      responses:
+        '200':
+          description: The bucket.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bucket' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    patch:
+      operationId: updateBucket
+      summary: Change a bucket's mutable settings
+      description: |
+        Only the settings under `BucketUpdate` can change. Identity (`name`, `owningTeam`,
+        `environment`) is immutable because the bucket name is derived from it — changing one
+        would destroy and recreate the bucket and lose its data, so the platform refuses rather
+        than silently doing that. Move data to a new bucket instead.
+
+        Omitted fields are left as they are; an explicit `null` resets a field to the platform
+        default.
+      tags: [buckets]
+      parameters:
+        - $ref: '#/components/parameters/DryRun'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BucketUpdate' }
+      responses:
+        '202': { $ref: '#/components/responses/RequestAccepted' }
+        '200': { $ref: '#/components/responses/DryRun' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/RequestInFlight' }
+
+    delete:
+      operationId: deleteBucket
+      summary: Decommission a bucket
+      description: |
+        Opens a change request that removes the stack. On merge the destroy pipeline tears the
+        bucket down and the inventory record goes with it.
+
+        The bucket is **not** deleted by this call — it is deleted when the request is merged.
+        The module sets `force_destroy = false`, so a non-empty bucket fails the destroy rather
+        than discarding data.
+      tags: [buckets]
+      parameters:
+        - $ref: '#/components/parameters/DryRun'
+      responses:
+        '202': { $ref: '#/components/responses/RequestAccepted' }
+        '200': { $ref: '#/components/responses/DryRun' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/RequestInFlight' }
+
+  /v1/requests:
+    get:
+      operationId: listRequests
+      summary: List change requests in flight
+      description: Open change requests — everything requested but not yet provisioned.
+      tags: [requests]
+      responses:
+        '200':
+          description: The open change requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [requests]
+                properties:
+                  requests:
+                    type: array
+                    items: { $ref: '#/components/schemas/Request' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/requests/{requestId}:
+    get:
+      operationId: getRequest
+      summary: Get a change request's status
+      description: |
+        Resolved live from the GitOps repo — review state, the policy gate's verdict and the
+        apply outcome. There is no request database, so this cannot drift from reality.
+      tags: [requests]
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/RequestId' }
+      responses:
+        '200':
+          description: The change request.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Request' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/catalog/teams:
+    get:
+      operationId: listTeams
+      summary: List the teams that can own a resource
+      description: From `platform/teams.yaml` — the same registry the Terraform module validates against.
+      tags: [catalog]
+      security: []
+      responses:
+        '200':
+          description: The known teams.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [teams]
+                properties:
+                  teams:
+                    type: array
+                    items: { $ref: '#/components/schemas/Team' }
+
+  /v1/catalog/environments:
+    get:
+      operationId: listEnvironments
+      summary: List the deployable environments
+      tags: [catalog]
+      security: []
+      responses:
+        '200':
+          description: The known environments and platform-wide conventions.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [environments, orgPrefix, region]
+                properties:
+                  environments:
+                    type: array
+                    items: { $ref: '#/components/schemas/Environment' }
+                  orgPrefix: { type: string, examples: [edo] }
+                  region: { type: string, examples: [europe-west2] }
+
+  /v1/metrics:
+    get:
+      operationId: getMetrics
+      summary: Delivery metrics
+      description: |
+        Aggregated on demand from the GitHub API: apply success rate and lead time from request
+        to provisioned. The same numbers the oversight dashboard renders.
+      tags: [oversight]
+      responses:
+        '200':
+          description: Delivery metrics.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeliveryMetrics' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/UpstreamUnavailable' }
+
+  /v1/compliance:
+    get:
+      operationId: getCompliance
+      summary: Compliance and drift status
+      description: Policy-gate pass rate and any buckets whose real state has drifted from what is declared.
+      tags: [oversight]
+      responses:
+        '200':
+          description: Compliance status.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Compliance' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/UpstreamUnavailable' }
+
+  /healthz:
+    get:
+      operationId: health
+      summary: Liveness probe
+      tags: [oversight]
+      security: []
+      responses:
+        '200':
+          description: The service is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status: { type: string, const: ok }
+
+components:
+  securitySchemes:
+    githubToken:
+      type: http
+      scheme: bearer
+      description: |
+        A GitHub token with *Contents: read/write* and *Pull requests: read/write* on the
+        GitOps repo. The service stores no credentials and acts as the caller, so every change
+        is attributed to the identity that made it.
+
+  parameters:
+    BucketId:
+      name: bucketId
+      in: path
+      required: true
+      description: The derived, globally unique bucket name.
+      schema: { $ref: '#/components/schemas/BucketId' }
+
+    DryRun:
+      name: dryRun
+      in: query
+      description: |
+        Render the change and return exactly what would be committed, without opening anything.
+        The reviewable diff, before there is a request to review.
+      schema: { type: boolean, default: false }
+
+  responses:
+    RequestAccepted:
+      description: |
+        The change request was opened. Nothing is provisioned yet — follow `Location` for status.
+      headers:
+        Location:
+          description: The change request to poll.
+          schema: { type: string, format: uri-reference }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Request' }
+
+    DryRun:
+      description: What would be committed. Nothing was opened.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DryRunResult' }
+
+    BadRequest:
+      description: |
+        The request is malformed or violates a platform convention. `errors` names the offending
+        fields so a client can point at them individually.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+    Unauthorized:
+      description: A GitHub bearer token is required, or the one supplied was rejected.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+    NotFound:
+      description: No such resource.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+    RequestInFlight:
+      description: |
+        Another change request is already open against this bucket. Merge or close it first —
+        the platform allows one writer at a time so two changes cannot race on shared state.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+    UpstreamUnavailable:
+      description: The GitHub API could not be reached, so the aggregate could not be computed.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    BucketId:
+      type: string
+      description: The derived bucket name, `{orgPrefix}-{environment}-{owningTeam}-{name}`.
+      pattern: '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'
+      examples: [edo-dev-checkout-orders]
+
+    RequestId:
+      type: string
+      description: Unique id for a change request, also written as the bucket's `request-id` label.
+      pattern: '^[a-z0-9_-]{1,63}$'
+      examples: [req-20260905-checkout-orders-a1b2]
+
+    Environment:
+      type: string
+      description: A deployable environment, from `platform/config.yaml`.
+      enum: [dev, test, prod]
+
+    StorageClass:
+      type: string
+      description: |
+        The sanctioned storage classes. Restricted to classes with no minimum-storage-duration
+        billing surprise for a self-service golden path.
+      enum: [STANDARD, NEARLINE]
+      default: STANDARD
+
+    LabelMap:
+      type: object
+      description: |
+        Extra labels for cost attribution or ownership context. The platform's own labels
+        (`owning-team`, `environment`, `managed-by`, `request-id`) are reserved and cannot be
+        set or overridden here.
+      additionalProperties:
+        type: string
+        pattern: '^[a-z0-9_-]{0,63}$'
+      propertyNames:
+        pattern: '^[a-z][a-z0-9_-]{0,62}$'
+      maxProperties: 8
+      examples:
+        - cost-centre: cc-1234
+
+    Team:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string, examples: [checkout] }
+        name: { type: string, examples: [Checkout] }
+
+    Guardrails:
+      type: object
+      description: |
+        What the platform enforces on every bucket and no client can override. Returned so a
+        caller can see the compliance posture it inherited without reading Terraform. Enforced
+        in the module and re-checked independently by the policy gate.
+      additionalProperties: false
+      required: [location, uniformBucketLevelAccess, publicAccessPrevention, versioning, forceDestroy]
+      properties:
+        location: { type: string, examples: [europe-west2] }
+        uniformBucketLevelAccess: { type: boolean, const: true }
+        publicAccessPrevention: { type: string, const: enforced }
+        versioning: { type: boolean, const: true }
+        forceDestroy: { type: boolean, const: false }
+
+    BucketSettings:
+      type: object
+      description: The knobs a team may actually turn. Everything else is platform-enforced.
+      additionalProperties: false
+      properties:
+        retentionDays:
+          type: [integer, 'null']
+          description: |
+            Delete noncurrent object versions after this many days. Null means keep them
+            indefinitely (the default).
+          minimum: 1
+          maximum: 3650
+          examples: [30]
+        storageClass: { $ref: '#/components/schemas/StorageClass' }
+        extraLabels: { $ref: '#/components/schemas/LabelMap' }
+
+    Bucket:
+      type: object
+      additionalProperties: false
+      required:
+        [bucketId, name, environment, owningTeam, type, requestId, requester, createdAt, stackDir, guardrails, settings]
+      properties:
+        bucketId: { $ref: '#/components/schemas/BucketId' }
+        name:
+          type: string
+          description: The short name the developer chose; the trailing segment of `bucketId`.
+          examples: [orders]
+        environment: { $ref: '#/components/schemas/Environment' }
+        owningTeam: { type: string, examples: [checkout] }
+        type: { type: string, examples: [gcs-bucket] }
+        requestId: { $ref: '#/components/schemas/RequestId' }
+        requester:
+          type: string
+          description: GitHub handle of whoever requested it.
+          examples: [octocat]
+        createdAt: { type: string, format: date, examples: ['2026-09-05'] }
+        stackDir:
+          type: string
+          description: Where this bucket is declared in the GitOps repo.
+          examples: [idp-gitops/stacks/dev/checkout-orders]
+        guardrails: { $ref: '#/components/schemas/Guardrails' }
+        settings: { $ref: '#/components/schemas/BucketSettings' }
+        pendingRequest:
+          description: A change request currently in flight against this bucket, if any.
+          oneOf:
+            - { $ref: '#/components/schemas/Request' }
+            - { type: 'null' }
+
+    BucketCreate:
+      type: object
+      description: |
+        The developer picks four things; the platform decides everything else. That is the
+        golden path — the smallest choice surface that still leaves a team in control of what
+        matters.
+      additionalProperties: false
+      required: [name, owningTeam, environment, requester]
+      properties:
+        name:
+          type: string
+          description: Short name; combined with environment and team into the bucket name.
+          pattern: '^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$'
+          examples: [orders]
+        owningTeam:
+          type: string
+          description: Must be a team in `platform/teams.yaml`.
+          examples: [checkout]
+        environment: { $ref: '#/components/schemas/Environment' }
+        requester:
+          type: string
+          description: |
+            GitHub handle to record as the requester. For an automated caller, the handle of
+            the bot or the team it acts for — the inventory should always name someone
+            accountable.
+          pattern: '^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$'
+          examples: [octocat]
+        settings: { $ref: '#/components/schemas/BucketSettings' }
+
+    BucketUpdate:
+      allOf:
+        - $ref: '#/components/schemas/BucketSettings'
+      description: |
+        A sparse patch of the mutable settings. Supplying an immutable field (`name`,
+        `owningTeam`, `environment`) is rejected with 400 rather than ignored, so a client is
+        never silently misled about what changed.
+
+    RequestIntent:
+      type: string
+      enum: [create, update, delete]
+
+    RequestStatus:
+      type: string
+      description: |
+        Where a change request has got to.
+
+        | status | meaning |
+        |---|---|
+        | `pending_review` | Open; checks running or passed. Waiting on a human. |
+        | `blocked` | Open, but the policy gate or plan failed. Needs a fix, not a review. |
+        | `merged` | Approved and merged; provisioning is running. |
+        | `applied` | Provisioned. The resource is live. |
+        | `decommissioned` | Torn down; the inventory record is gone. |
+        | `failed` | Merged, but the apply or destroy failed. Needs attention. |
+        | `cancelled` | Closed without merging. Nothing changed. |
+
+        `applied`, `decommissioned`, `failed` and `cancelled` are terminal.
+      enum: [pending_review, blocked, merged, applied, decommissioned, failed, cancelled]
+
+    Request:
+      type: object
+      description: An auditable change moving through review, the policy gate and apply.
+      additionalProperties: false
+      required: [requestId, intent, status, bucketId, stackDir, submittedAt, review]
+      properties:
+        requestId: { $ref: '#/components/schemas/RequestId' }
+        intent: { $ref: '#/components/schemas/RequestIntent' }
+        status: { $ref: '#/components/schemas/RequestStatus' }
+        bucketId: { $ref: '#/components/schemas/BucketId' }
+        stackDir: { type: string, examples: [idp-gitops/stacks/dev/checkout-orders] }
+        submittedAt: { type: string, format: date-time }
+        message:
+          type: string
+          description: |
+            Why the request is where it is — the gate's objection when `blocked`, the failure
+            when `failed`. Human-readable; do not parse it.
+        review:
+          type: object
+          description: |
+            Where to go to see or act on this change. The one place the underlying mechanism
+            surfaces, because a human needs a link to click.
+          additionalProperties: false
+          required: [url]
+          properties:
+            url: { type: string, format: uri, description: The change to review. }
+            number: { type: integer, description: Its number in the review system. }
+
+    DryRunResult:
+      type: object
+      description: Exactly what a real call would have committed.
+      additionalProperties: false
+      required: [intent, bucketId, stackDir, files, summary]
+      properties:
+        intent: { $ref: '#/components/schemas/RequestIntent' }
+        bucketId: { $ref: '#/components/schemas/BucketId' }
+        stackDir: { type: string }
+        summary:
+          type: string
+          description: One-line description of the change.
+          examples: ['create idp-gitops/stacks/dev/checkout-orders (2 files)']
+        files:
+          type: array
+          description: The files the change would write. A null `content` means the file is removed.
+          items:
+            type: object
+            additionalProperties: false
+            required: [path, content]
+            properties:
+              path: { type: string, examples: [idp-gitops/stacks/dev/checkout-orders/main.tf] }
+              content: { type: [string, 'null'] }
+
+    DeliveryMetrics:
+      type: object
+      description: |
+        How well the platform is serving its users. Nulls mean "not enough data yet" and are
+        deliberately not zero — an unmeasured platform should say so rather than look perfect.
+      additionalProperties: false
+      required: [applyRuns, applySuccess, applySuccessRate, medianLeadTimeMins, recent]
+      properties:
+        applyRuns: { type: integer, description: Completed provisioning runs observed. }
+        applySuccess: { type: integer }
+        applySuccessRate: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        medianLeadTimeMins:
+          type: [integer, 'null']
+          description: Median minutes from request to provisioned.
+        recent:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [number, title, createdAt, mergedAt, leadTimeMins, url]
+            properties:
+              number: { type: integer }
+              title: { type: string }
+              createdAt: { type: string, format: date-time }
+              mergedAt: { type: [string, 'null'], format: date-time }
+              leadTimeMins: { type: [integer, 'null'] }
+              url: { type: string, format: uri }
+
+    Compliance:
+      type: object
+      additionalProperties: false
+      required: [openDrift, policyRuns, policyPass, policyPassRate]
+      properties:
+        openDrift:
+          type: array
+          description: |
+            Buckets whose real state no longer matches what is declared — someone changed them
+            outside the platform.
+          items:
+            type: object
+            additionalProperties: false
+            required: [stack, issueNumber, url]
+            properties:
+              stack: { type: string }
+              issueNumber: { type: integer }
+              url: { type: string, format: uri }
+        policyRuns: { type: integer }
+        policyPass: { type: integer }
+        policyPassRate: { type: [number, 'null'], minimum: 0, maximum: 1 }
+
+    Problem:
+      type: object
+      description: An error, in the RFC 9457 `application/problem+json` shape.
+      required: [title, status]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          default: about:blank
+          description: Identifies the kind of problem.
+          examples: ['/problems/validation-failed']
+        title: { type: string, examples: ['Validation failed'] }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        detail:
+          type: string
+          description: What went wrong with this specific request.
+        instance: { type: string, format: uri-reference }
+        errors:
+          type: array
+          description: Field-level failures, so a client can attribute each one to its input.
+          items:
+            type: object
+            additionalProperties: false
+            required: [field, message]
+            properties:
+              field: { type: string, examples: [name] }
+              message: { type: string }
