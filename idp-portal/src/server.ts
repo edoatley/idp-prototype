@@ -2,10 +2,10 @@ import express from 'express';
 import {
   loadConfig,
   validate,
-  generate,
   generateRequestId,
-  openBucketPR,
-  openDecommissionPR,
+  planCreate,
+  planDelete,
+  GitHubPrDriver,
   listBuckets,
   deliveryMetrics,
   compliance,
@@ -18,7 +18,9 @@ import {
 } from 'idp-core';
 import { mountApi } from './api';
 
-// The thin write-path UI: a form -> validate -> generate stack -> open PR.
+// The human surface: a form -> validate -> submit a change -> show the PR.
+// The change layer in idp-core does the actual work, so this file is only
+// HTML and the JSON API next door goes through exactly the same path.
 // No GCP creds here; the only secret is the GitHub PAT (GITHUB_TOKEN).
 
 function esc(s: string): string {
@@ -169,29 +171,26 @@ export function createApp(): express.Express {
     if (!requester) errors.push({ field: 'name', message: 'requester (your GitHub handle) is required.' });
     if (errors.length) return res.status(400).send(renderForm(config, { ...input, requester }, errors));
 
-    const requestId = generateRequestId(input.owning_team, input.name);
-    const stack = generate(input, { requester, requestId, date: new Date().toISOString().slice(0, 10) });
-
-    const [owner, repo] = (process.env.GITHUB_REPO ?? '').split('/');
-    const token = process.env.GITHUB_TOKEN;
-    if (!owner || !repo || !token) {
+    const gh = githubEnv();
+    if (!gh) {
       return res.status(500).send(page('Config error', '<p class="err">GITHUB_REPO and GITHUB_TOKEN must be set.</p>'));
     }
 
+    // The form goes through the same change layer as the API and the CLI: one
+    // place decides what a request becomes, so all three produce identical PRs.
+    const change = planCreate({
+      request: input,
+      requester,
+      requestId: generateRequestId(input.owning_team, input.name),
+      date: new Date().toISOString().slice(0, 10),
+    });
+
     try {
-      const pr = await openBucketPR({
-        token,
-        owner,
-        repo,
-        branch: `portal/${input.environment}-${input.owning_team}-${input.name}`,
-        stack,
-        title: `Provision bucket ${stack.bucketName}`,
-        body: `Requested via idp-portal by @${requester}.\n\nStack: \`${stack.stackDir}\` · request-id \`${requestId}\`.\n\nPR CI will plan + run the policy gate; merge to provision via WIF.`,
-      });
+      const submitted = await new GitHubPrDriver(gh).submit(change);
       res.send(
         page(
           'PR opened',
-          `<p class="ok">✅ Opened <a href="${esc(pr.url)}">PR #${pr.number}</a> for <code>${esc(stack.bucketName)}</code>.</p>
+          `<p class="ok">✅ Opened <a href="${esc(submitted.url)}">PR #${submitted.number}</a> for <code>${esc(change.target.bucketName)}</code>.</p>
 <p>CI is planning + running the policy gate now. Review and merge to provision.</p>
 <p><a href="/">Request another</a></p>`,
         ),
@@ -236,18 +235,18 @@ export function createApp(): express.Express {
     if (!gh) {
       return res.status(500).send(page('Config error', '<p class="err">GITHUB_REPO and GITHUB_TOKEN must be set.</p>'));
     }
+    const change = planDelete({
+      record,
+      requester: record.requester || 'idp-portal',
+      requestId: generateRequestId(record.owning_team, 'decommission'),
+    });
+
     try {
-      const pr = await openDecommissionPR({
-        ...gh,
-        branch: `portal/decommission-${record.environment}-${record.stackDir.split('/').pop()}`,
-        stackDir: record.stackDir,
-        title: `Decommission bucket ${record.bucketName}`,
-        body: `Decommission requested via idp-portal.\n\nRemoves \`${record.stackDir}\`; merging runs destroy.yml to tear down \`${record.bucketName}\`.`,
-      });
+      const submitted = await new GitHubPrDriver(gh).submit(change);
       res.send(
         page(
           'Decommission PR opened',
-          `<p class="ok">♻️ Opened <a href="${esc(pr.url)}">PR #${pr.number}</a> to decommission <code>${esc(record.bucketName)}</code>.</p>
+          `<p class="ok">♻️ Opened <a href="${esc(submitted.url)}">PR #${submitted.number}</a> to decommission <code>${esc(record.bucketName)}</code>.</p>
 <p>Review and merge to destroy via WIF.</p>
 <p><a href="/buckets">Back to buckets</a></p>`,
         ),
