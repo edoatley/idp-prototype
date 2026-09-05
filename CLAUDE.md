@@ -102,7 +102,7 @@ these in workflows, do not hardcode:
   no GCP creds.
 - `.github/workflows/` — `pr.yml` (plan + policy gate + comment), `apply.yml` (WIF apply +
   audit comment), `drift.yml` (scheduled drift → Issue), `destroy.yml` (decommission +
-  audit comment), `terraform-checks.yml` + `portal-checks.yml` + `workflow-checks.yml`
+  audit comment), `terraform-checks.yml` + `node-checks.yml` + `workflow-checks.yml`
   (credential-free CI).
 - `.github/scripts/` — the code the workflows delegate to, so the YAML stays readable:
   `detect-stacks.sh` (which stacks a run acts on), `gh-comment.js` + `report-*.js` (the

@@ -16,24 +16,22 @@ provisioning stays in CI. Teams and environments come from
 
 ## Layout
 
+The portal is now only the **HTML surface**; everything portal-agnostic lives in
+[`idp-core`](../idp-core/README.md) so the API and CLI share one implementation of the golden
+path.
+
 ```
-src/config.ts      # load platform conventions (envs, teams) from platform/*.yaml
-src/validate.ts    # mirror the module's input validation, fail early
-src/requestId.ts   # unique request id (GCS label-value charset)
-src/generator.ts   # PURE: request -> stack files (main.tf + metadata.yaml)
-src/github.ts      # open a branch/commit/PR via the GitHub git-data API (plain fetch)
 src/server.ts      # the form, POST handlers, /buckets and /dashboard
-src/inventory.ts   # READ: walk stacks/*/*/metadata.yaml -> the inventory
-src/metrics.ts     # READ: apply success rate + lead time from the GitHub API
-src/compliance.ts  # READ: policy pass-rate + open `Drift:` Issues
 ```
 
 ## Develop
 
+Run from the **repo root** — the Node packages are one npm workspace:
+
 ```bash
-npm ci
+npm ci             # installs idp-core + idp-portal together (one lockfile)
 npm run typecheck
-npm test           # vitest — generator/validate/config unit tests (no network, no creds)
+npm test           # vitest, in idp-core (no network, no creds)
 ```
 
 ## Run
