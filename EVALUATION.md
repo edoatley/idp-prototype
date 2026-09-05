@@ -111,6 +111,46 @@ For each phase, note: what worked, friction/surprises, time spent, and — most 
     recomputed per request (fine at this scale). None block the "can I see what exists, who owns
     it, how we're doing, and are we compliant?" question — which is answered.
 
+- **Phase 7 — API + CLI (the programmatic surfaces).** Added `contracts/openapi.yaml`, a JSON
+  API mounted on the portal's own Express app, and `idp-cli`. The three surfaces (form, API,
+  CLI) now share one change layer in `idp-core`.
+  - **The cheap part was the API; the valuable part was the extraction.** Standing up the JSON
+    routes took far less effort than expected because the portal's domain logic was already
+    free of HTTP. What actually paid off was making the *change submission* a port
+    (`ChangeDriver`): before, the portal derived branch names, PR titles and bodies inline in
+    each form handler, so a second surface would have duplicated those conventions and slowly
+    diverged. Refactoring the portal's own handlers onto the shared layer — rather than leaving
+    them alongside it — is what makes "one golden path" true rather than aspirational.
+  - **Contract-first was worth it, but only because the contract is enforced.** A spec that is
+    merely published rots. Two things keep this one honest: `express-openapi-validator`
+    validates **responses** as well as requests (a handler that stops matching the contract
+    fails the suite — proven by a test that deliberately breaks it), and the CLI's client types
+    are *generated* from the same file, with CI failing on any diff. Spec, server and client
+    cannot drift independently.
+  - **"Update" forced a real design question.** The module had no mutable input: `name`,
+    `owning_team` and `environment` all feed the derived bucket name, so changing any of them is
+    a destroy-and-recreate, not an update. Rather than fake it, the module gained a deliberately
+    small set of safe knobs (`retention_days`, `storage_class`, `extra_labels`) and PATCH
+    **rejects** an immutable field with a 400 instead of silently ignoring it. The retention knob
+    only ever expires *noncurrent* versions, enforced in the module and re-checked by an
+    independent Rego rule — deleting live data is the one bucket change that cannot be undone.
+  - **Tests earned their keep twice.** A `terraform test` caught a validation bug that would have
+    waved every out-of-range retention through (`can(0 >= 1)` is `true` — `can()` reports whether
+    an expression *evaluated*, not what it evaluated to). And running real `terraform fmt`
+    against generated stacks caught that fmt gives an argument opening a multi-line block a
+    single space and ends the alignment run — hand-aligned templates would have failed
+    `pr.yml`'s `fmt -check` on every request carrying labels.
+  - **Statelessness held under pressure.** The obvious way to answer "where is my request?" is a
+    requests table. Instead status is derived live from PR state, check runs and the sticky audit
+    comments the workflows *already* post (`<!-- tf-apply:… -->`). No new CI plumbing, no
+    datastore, and status cannot disagree with reality. The cost is several GitHub API calls per
+    poll — fine at this scale, and the honest trade to record.
+  - **What is missing (the hardening backlog):** request lookup scans recent PRs rather than
+    using the search API, so a very old request eventually falls off; there is no idempotency
+    key, so a retried create relies on the stack-collision guard; the single-writer check is
+    read-then-write and could race under genuine concurrency; and the API reads inventory from a
+    local checkout, so deploying it away from the repo needs a GitHub-backed inventory source.
+
 ### Security-scanning backlog (accepted trivy exceptions)
 
 Phase 1 added local + CI security scanning (`trivy config`, alongside `tflint`). The
