@@ -114,3 +114,60 @@ test_delete_is_ignored if {
 	}]}
 	count(deny) == 0 with input as plan
 }
+
+# --- Mutable settings ------------------------------------------------------
+
+test_default_storage_class_allowed if {
+	after := object.union(compliant_after, {"storage_class": "STANDARD"})
+	count(deny) == 0 with input as plan_with(after)
+}
+
+test_nearline_storage_class_allowed if {
+	after := object.union(compliant_after, {"storage_class": "NEARLINE"})
+	count(deny) == 0 with input as plan_with(after)
+}
+
+test_unsanctioned_storage_class_denied if {
+	after := object.union(compliant_after, {"storage_class": "ARCHIVE"})
+	msgs := deny with input as plan_with(after)
+	some m in msgs
+	contains(m, "storage_class")
+}
+
+test_noncurrent_retention_rule_allowed if {
+	after := object.union(compliant_after, {"lifecycle_rule": [{
+		"action": [{"type": "Delete"}],
+		"condition": [{"days_since_noncurrent_time": 30, "with_state": "ARCHIVED"}],
+	}]})
+	count(deny) == 0 with input as plan_with(after)
+}
+
+# The rule that matters most: a Delete that would take LIVE objects with it.
+test_live_object_deletion_denied if {
+	after := object.union(compliant_after, {"lifecycle_rule": [{
+		"action": [{"type": "Delete"}],
+		"condition": [{"age": 30}],
+	}]})
+	msgs := deny with input as plan_with(after)
+	some m in msgs
+	contains(m, "noncurrent versions")
+}
+
+test_live_object_deletion_denied_when_state_is_live if {
+	after := object.union(compliant_after, {"lifecycle_rule": [{
+		"action": [{"type": "Delete"}],
+		"condition": [{"age": 30, "with_state": "LIVE"}],
+	}]})
+	msgs := deny with input as plan_with(after)
+	some m in msgs
+	contains(m, "noncurrent versions")
+}
+
+# The multipart-abort rule the module always sets is not a Delete, so it passes.
+test_multipart_abort_rule_allowed if {
+	after := object.union(compliant_after, {"lifecycle_rule": [{
+		"action": [{"type": "AbortIncompleteMultipartUpload"}],
+		"condition": [{"age": 7}],
+	}]})
+	count(deny) == 0 with input as plan_with(after)
+}

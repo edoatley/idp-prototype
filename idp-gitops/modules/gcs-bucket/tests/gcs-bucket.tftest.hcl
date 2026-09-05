@@ -98,3 +98,105 @@ run "rejects_invalid_name" {
 
   expect_failures = [var.name]
 }
+
+# --- Mutable settings ------------------------------------------------------
+# The knobs a team may turn. Each test pins BOTH that the knob works and that it
+# cannot be used to escape a guardrail — the reason these are the only ones open.
+
+run "settings_default_to_the_opinionated_choice" {
+  command = plan
+
+  assert {
+    condition     = google_storage_bucket.this.storage_class == "STANDARD"
+    error_message = "storage_class must default to STANDARD."
+  }
+  # Only the multipart-abort rule; no retention rule unless one is asked for.
+  assert {
+    condition     = length(google_storage_bucket.this.lifecycle_rule) == 1
+    error_message = "With no retention_days there must be exactly one lifecycle rule (the multipart abort)."
+  }
+}
+
+run "retention_expires_only_noncurrent_versions" {
+  command = plan
+
+  variables {
+    retention_days = 30
+  }
+
+  assert {
+    condition     = length(google_storage_bucket.this.lifecycle_rule) == 2
+    error_message = "retention_days must add a second lifecycle rule."
+  }
+  # The whole point: the Delete action must be scoped to ARCHIVED (noncurrent)
+  # objects. A rule deleting LIVE objects would silently destroy a team's data.
+  assert {
+    condition = alltrue([
+      for r in google_storage_bucket.this.lifecycle_rule :
+      one(r.condition).with_state == "ARCHIVED" if one(r.action).type == "Delete"
+    ])
+    error_message = "A Delete lifecycle rule must only ever apply to ARCHIVED (noncurrent) versions."
+  }
+  assert {
+    condition = anytrue([
+      for r in google_storage_bucket.this.lifecycle_rule :
+      one(r.condition).days_since_noncurrent_time == 30
+    ])
+    error_message = "retention_days must set days_since_noncurrent_time."
+  }
+}
+
+run "extra_labels_are_merged_without_displacing_the_mandatory_ones" {
+  command = plan
+
+  variables {
+    extra_labels = {
+      "cost-centre" = "cc-1234"
+    }
+  }
+
+  assert {
+    condition     = google_storage_bucket.this.labels["cost-centre"] == "cc-1234"
+    error_message = "extra_labels must be applied to the bucket."
+  }
+  assert {
+    condition     = google_storage_bucket.this.labels["managed-by"] == "idp"
+    error_message = "extra_labels must not displace the mandatory managed-by label."
+  }
+  assert {
+    condition     = google_storage_bucket.this.labels["owning-team"] == "platform"
+    error_message = "extra_labels must not displace the mandatory owning-team label."
+  }
+}
+
+run "storage_class_outside_the_allowlist_is_rejected" {
+  command = plan
+
+  variables {
+    storage_class = "ARCHIVE"
+  }
+
+  expect_failures = [var.storage_class]
+}
+
+run "extra_labels_cannot_shadow_a_platform_label" {
+  command = plan
+
+  variables {
+    extra_labels = {
+      "managed-by" = "not-idp"
+    }
+  }
+
+  expect_failures = [var.extra_labels]
+}
+
+run "retention_days_outside_the_permitted_range_is_rejected" {
+  command = plan
+
+  variables {
+    retention_days = 0
+  }
+
+  expect_failures = [var.retention_days]
+}

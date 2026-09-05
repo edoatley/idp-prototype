@@ -53,3 +53,55 @@ variable "teams_file" {
   type        = string
   default     = "" # resolved to ${path.module}/../../platform/teams.yaml in main.tf when empty
 }
+
+# --- Mutable settings ------------------------------------------------------
+# The only inputs a team may change after provisioning. Everything above is
+# identity (it determines the bucket name, so changing it would replace the
+# bucket) and everything in main.tf is a guardrail. These are deliberately few:
+# the golden path stays opinionated, but a team is not stuck with defaults that
+# do not fit its data.
+
+variable "retention_days" {
+  description = "Delete NONCURRENT object versions this many days after they are superseded. Null keeps every version indefinitely (the default). Live objects are never touched."
+  type        = number
+  default     = null
+
+  validation {
+    # A conditional, not `can(...)`: can() reports whether the expression EVALUATED,
+    # so can(0 >= 1) is true and would wave every out-of-range value through.
+    condition     = var.retention_days == null ? true : (var.retention_days >= 1 && var.retention_days <= 3650 && floor(var.retention_days) == var.retention_days)
+    error_message = "retention_days must be a whole number of days between 1 and 3650, or null."
+  }
+}
+
+variable "storage_class" {
+  description = "Storage class for the bucket. Restricted to classes with no minimum-storage-duration billing surprise on a self-service path."
+  type        = string
+  default     = "STANDARD"
+
+  validation {
+    condition     = contains(["STANDARD", "NEARLINE"], var.storage_class)
+    error_message = "storage_class must be one of: STANDARD, NEARLINE."
+  }
+}
+
+variable "extra_labels" {
+  description = "Additional labels for cost attribution or ownership context. The platform's own labels are reserved and cannot be set here."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition     = length(setintersection(keys(var.extra_labels), ["owning-team", "environment", "managed-by", "request-id"])) == 0
+    error_message = "extra_labels must not set the platform's own labels: owning-team, environment, managed-by, request-id."
+  }
+
+  validation {
+    condition     = alltrue([for k, v in var.extra_labels : can(regex("^[a-z][a-z0-9_-]{0,62}$", k)) && can(regex("^[a-z0-9_-]{0,63}$", v))])
+    error_message = "extra_labels keys must start with a letter and keys/values must be lowercase letters, digits, underscores or hyphens (GCS label charset)."
+  }
+
+  validation {
+    condition     = length(var.extra_labels) <= 8
+    error_message = "extra_labels is capped at 8 labels."
+  }
+}

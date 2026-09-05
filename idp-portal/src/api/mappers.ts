@@ -1,4 +1,4 @@
-import { GUARDRAILS, DEFAULT_SETTINGS, type BucketRecord } from 'idp-core';
+import { GUARDRAILS, type BucketRecord } from 'idp-core';
 
 // Translate the GitOps record into the API's `Bucket`. Kept apart from the
 // domain so the wire shape can evolve without disturbing idp-core, and so the
@@ -27,6 +27,6 @@ export function toBucket(record: BucketRecord) {
     createdAt: record.created_at,
     stackDir: record.stackDir,
     guardrails: GUARDRAILS,
-    settings: { ...DEFAULT_SETTINGS },
+    settings: { ...record.settings },
   };
 }
