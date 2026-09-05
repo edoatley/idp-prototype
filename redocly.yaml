@@ -1,0 +1,21 @@
+# Lint config for contracts/openapi.yaml.
+#
+# `recommended-strict` promotes the recommended ruleset's warnings to errors, so
+# CI fails on anything new. The exceptions below are the three rules that do not
+# apply to this prototype — each is a deliberate, recorded decision, the same way
+# .trivyignore records accepted scanner exceptions.
+
+extends:
+  - recommended-strict
+
+rules:
+  # The prototype genuinely runs on localhost; there is no deployed host to name.
+  no-server-example.com: off
+
+  # Internal prototype, not a distributed artifact — a licence field would be noise.
+  info-license: off
+
+  # The catalog reads and the health probe take no input and touch nothing that can
+  # fail a client's request. Inventing 4xx responses for them would describe errors
+  # the API cannot actually return, which is worse than omitting them.
+  operation-4xx-response: off
