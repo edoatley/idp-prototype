@@ -2,6 +2,7 @@ import path from 'node:path';
 import express, { type Express } from 'express';
 import * as OpenApiValidator from 'express-openapi-validator';
 import { apiRouter } from './router';
+import { writeRouter } from './writes';
 import { problemHandler } from './problem';
 import { bearerToken } from './auth';
 
@@ -38,5 +39,6 @@ export function mountApi(app: Express): void {
   );
 
   app.use(apiRouter());
+  app.use(writeRouter());
   app.use(problemHandler);
 }
