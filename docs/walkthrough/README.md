@@ -24,6 +24,8 @@ disposable. See [PRD.md](../../PRD.md), [CLAUDE.md](../../CLAUDE.md), and the le
                                                   │
    drift.yml (scheduled) ─plan all─▶ Drift Issue      metadata.yaml ─▶ /dashboard (oversight)
    destroy.yml (on stack removal) ─▶ terraform destroy
+
+ pipeline/dev ──▶ idp-cli ──HTTP──▶ /v1 API ──┘ (same change layer as the form)
 ```
 
 ## The tour
@@ -35,6 +37,7 @@ disposable. See [PRD.md](../../PRD.md), [CLAUDE.md](../../CLAUDE.md), and the le
 5. [Merge → apply via WIF + the audit trail](05-apply-and-audit.md)
 6. [The oversight dashboard](06-oversight-dashboard.md)
 7. [Day-2 — drift detection & decommission](07-day2-drift-and-decommission.md)
+8. [The API and CLI — the same path without a browser](08-api-and-cli.md)
 
 ## Prerequisites for the capture pass
 

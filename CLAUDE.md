@@ -27,7 +27,10 @@ idp-gitops/        # portal-agnostic source of truth
   modules/         # opinionated, guardrailed Terraform modules (Phase 1+)
   stacks/          # per-request Terraform stacks (generated), each with its own state prefix
   policy/          # Rego policies for the Conftest gate (Phase 2)
-idp-portal/        # thin custom app: create-bucket form (write) + visibility dashboard (read)
+contracts/         # openapi.yaml — the API contract, shared by server and CLI (spec-first)
+idp-core/          # portal-agnostic domain: validate, generate, submit a change, read state
+idp-portal/        # HTML surface (form + dashboard) AND the /v1 JSON API, one Express app
+idp-cli/           # `idp` command line — a pure client of the API, typed from the contract
 .github/
   workflows/       # pr / apply / drift / destroy + the credential-free check pipelines
   scripts/         # the shell + github-script code those workflows delegate to
@@ -64,6 +67,13 @@ docs/portal-to-terraform.md  # reference: how a portal request becomes Terraform
   walkthrough of the whole build (commands + links + screenshots) to understand/showcase it end
   to end. Scaffold lives in [`docs/walkthrough/`](./docs/walkthrough/README.md); the capture pass
   = run each step and drop screenshots into `images/`. (Cold-start runbook below.)
+- **Phase 7 — API + CLI** ✅ **done**. `contracts/openapi.yaml` (contract-first, enforced at
+  runtime by `express-openapi-validator` in both directions), `/v1` JSON routes mounted on the
+  portal app, and `idp-cli`. All three surfaces submit through one change layer
+  (`idp-core/src/change.ts` + `drivers/`), so nothing outside `idp-core` knows a change is a PR.
+  The `gcs-bucket` module gained its first mutable inputs (`retention_days`, `storage_class`,
+  `extra_labels`) so `PATCH` produces a real in-place plan. `idp-gitops` workflows and the policy
+  gate were untouched — the extensibility claim, tested.
 - **Backstage** — *deferred / optional* (was the old Phase 6). Re-implement the golden path on
   Backstage against the unchanged `idp-gitops` backend and score it vs the thin portal
   (`EVALUATION.md` Part 2). Not currently scheduled.
@@ -96,10 +106,19 @@ these in workflows, do not hardcode:
   one via the portal to exercise the pipelines (an empty `stacks/` makes every matrix job in
   `pr`/`apply`/`destroy`/`drift` skip).
 - `idp-gitops/policy/` — Rego/Conftest gate + unit tests (`conftest verify`).
-- `idp-portal/` — thin Node/TypeScript app: create-bucket form + decommission action + the
-  `/dashboard` oversight view (`src/generator.ts`, `github.ts`, `inventory.ts`, `metrics.ts`,
-  `compliance.ts`, `server.ts`). Reads `platform/*`; opens PRs with a GitHub PAT (`GITHUB_TOKEN`);
+- `idp-core/` — the domain every surface shares: `config.ts`, `validate.ts`, `requestId.ts`,
+  `generator.ts` (pure; computes HCL alignment so generated stacks are `fmt`-clean),
+  `inventory.ts`, `metrics.ts`, `compliance.ts`, `guardrails.ts`, plus the change layer
+  (`change.ts` port + `drivers/githubPr.ts` and `drivers/dryRun.ts`). Reads `platform/*`;
   no GCP creds.
+- `idp-portal/` — the HTML surface (`src/server.ts`: form, `/buckets`, `/dashboard`) **and** the
+  JSON API (`src/api/`), served from one Express app. Opens PRs with a GitHub PAT
+  (`GITHUB_TOKEN`) for the form; the API uses the *caller's* bearer token instead.
+- `contracts/openapi.yaml` — the API contract. Linted by redocly (`recommended-strict`;
+  `redocly.yaml` records the accepted exceptions) and enforced at runtime on requests **and**
+  responses, so a handler that breaks it fails the suite rather than shipping.
+- `idp-cli/` — the `idp` command line. `src/schema.d.ts` is **generated** from the contract and
+  committed; CI regenerates and fails on any diff.
 - `.github/workflows/` — `pr.yml` (plan + policy gate + comment), `apply.yml` (WIF apply +
   audit comment), `drift.yml` (scheduled drift → Issue), `destroy.yml` (decommission +
   audit comment), `terraform-checks.yml` + `node-checks.yml` + `workflow-checks.yml`
@@ -141,7 +160,12 @@ and showcase-ready from the repo alone.
 
 - **org_prefix**: `edo` · **region**: `europe-west2` (London) · **environments**: `dev|test|prod`.
 - **Bucket naming**: `${org_prefix}-${environment}-${team}-${name}` (lowercased, validated).
-- **Mandatory labels**: `owning-team`, `environment`, `managed-by=idp`, `request-id`.
+- **Mandatory labels**: `owning-team`, `environment`, `managed-by=idp`, `request-id`. These four
+  are reserved — `extra_labels` may not set or shadow them.
+- **Mutable settings** (the only post-provision knobs): `retention_days` (expires *noncurrent*
+  versions only), `storage_class` (`STANDARD`|`NEARLINE`), `extra_labels`. Identity
+  (`name`/`owning_team`/`environment`) is immutable: it derives the bucket name, so changing it
+  would destroy and recreate the bucket.
 - **Enforced (non-overridable) guardrails**: uniform bucket-level access, public-access
   prevention = enforced, versioning on. Enforcement lives in the module; the policy gate is a
   second, independent check.
@@ -168,6 +192,16 @@ cd idp-bootstrap && cp terraform.tfvars.example terraform.tfvars
 # Any Terraform dir
 terraform fmt && terraform validate
 terraform test                 # unit tests via mock_provider (no cloud, no creds)
+
+# The Node workspaces (idp-core + idp-portal + idp-cli) — mirrors node-checks CI
+npm ci                         # ONE install at the repo root; one lockfile
+npm run lint:api               # redocly lint of contracts/openapi.yaml
+npm run generate -w idp-cli    # regenerate the CLI's types from the contract
+npm run typecheck && npm test
+
+# Run the platform (HTML UI + /v1 API on one port) and drive it from the CLI
+GITHUB_REPO=edoatley/idp-prototype npm run dev -w idp-portal
+IDP_TOKEN="$GITHUB_TOKEN" ./idp-cli/bin/idp.js bucket list
 
 # All credential-free checks at once — mirrors terraform-checks CI
 ./scripts/checks.sh            # needs terraform, tflint, trivy, conftest
