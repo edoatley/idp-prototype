@@ -1,0 +1,25 @@
+{
+  "name": "idp-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The portal-agnostic domain of the IDP: platform config, request validation, stack generation and the read-side aggregations. No HTTP surface — every surface (portal UI, API, CLI) builds on this.",
+  "type": "commonjs",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.11"
+  }
+}

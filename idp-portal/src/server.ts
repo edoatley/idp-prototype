@@ -1,12 +1,21 @@
 import express from 'express';
-import { loadConfig, type PlatformConfig } from './config';
-import { validate, type BucketRequest, type FieldError } from './validate';
-import { generate } from './generator';
-import { generateRequestId } from './requestId';
-import { openBucketPR, openDecommissionPR } from './github';
-import { listBuckets, type BucketRecord } from './inventory';
-import { deliveryMetrics, type DeliveryMetrics } from './metrics';
-import { compliance, type Compliance } from './compliance';
+import {
+  loadConfig,
+  validate,
+  generate,
+  generateRequestId,
+  openBucketPR,
+  openDecommissionPR,
+  listBuckets,
+  deliveryMetrics,
+  compliance,
+  type PlatformConfig,
+  type BucketRequest,
+  type FieldError,
+  type BucketRecord,
+  type DeliveryMetrics,
+  type Compliance,
+} from 'idp-core';
 
 // The thin write-path UI: a form -> validate -> generate stack -> open PR.
 // No GCP creds here; the only secret is the GitHub PAT (GITHUB_TOKEN).
