@@ -11,6 +11,7 @@ on:
       - "package-lock.json"
       - "idp-core/**"
       - "idp-portal/**"
+      - "idp-cli/**"
       - "contracts/**"
       - ".github/workflows/node-checks.yml"
   workflow_dispatch:
@@ -35,6 +36,14 @@ jobs:
       # The contract is load-bearing, so it is linted like code. `recommended-strict`
       # means any new problem fails the build; redocly.yaml records the exceptions.
       - run: npm run lint:api
+
+      # The CLI's client types are GENERATED from the contract. Regenerate and
+      # diff: a contract change that the client has not followed fails here
+      # rather than at runtime in someone's pipeline.
+      - name: Contract and generated client are in sync
+        run: |
+          npm run generate -w idp-cli
+          git diff --exit-code -- idp-cli/src/schema.d.ts
 
       - run: npm run typecheck
       - run: npm test
