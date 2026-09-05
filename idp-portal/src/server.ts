@@ -16,6 +16,7 @@ import {
   type DeliveryMetrics,
   type Compliance,
 } from 'idp-core';
+import { mountApi } from './api';
 
 // The thin write-path UI: a form -> validate -> generate stack -> open PR.
 // No GCP creds here; the only secret is the GitHub PAT (GITHUB_TOKEN).
@@ -255,6 +256,10 @@ export function createApp(): express.Express {
       res.status(500).send(page('Error', `<p class="err">${esc((e as Error).message)}</p><p><a href="/buckets">Back</a></p>`));
     }
   });
+
+  // The machine surface, mounted last so the HTML routes above keep their paths.
+  // Both surfaces read and write through idp-core, never through each other.
+  mountApi(app);
 
   return app;
 }
