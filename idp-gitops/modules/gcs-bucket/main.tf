@@ -23,18 +23,25 @@ locals {
   bucket_name = lower("edo-${var.environment}-${var.owning_team}-${var.name}")
 
   # Mandatory inventory/ownership labels.
-  labels = {
+  mandatory_labels = {
     "owning-team" = var.owning_team
     "environment" = var.environment
     "managed-by"  = "idp"
     "request-id"  = var.request_id
   }
+
+  # A team's own labels, then the platform's — so the mandatory four always win.
+  # var.extra_labels already rejects these keys; this ordering means a mistake
+  # there could still never strip the platform's ownership trail.
+  labels = merge(var.extra_labels, local.mandatory_labels)
 }
 
 resource "google_storage_bucket" "this" {
   project  = var.project_id
   name     = local.bucket_name
   location = local.location
+
+  storage_class = var.storage_class
 
   uniform_bucket_level_access = true
   public_access_prevention    = "enforced"
@@ -53,6 +60,23 @@ resource "google_storage_bucket" "this" {
     }
     condition {
       age = 7
+    }
+  }
+
+  # Optional retention: expire NONCURRENT versions only. Live objects are never
+  # deleted by the platform — with versioning on, this reclaims the history a
+  # team does not need without ever destroying data it can still see.
+  dynamic "lifecycle_rule" {
+    for_each = var.retention_days == null ? [] : [var.retention_days]
+
+    content {
+      action {
+        type = "Delete"
+      }
+      condition {
+        days_since_noncurrent_time = lifecycle_rule.value
+        with_state                 = "ARCHIVED"
+      }
     }
   }
 

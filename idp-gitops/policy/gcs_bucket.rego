@@ -84,3 +84,35 @@ deny contains msg if {
 	not startswith(object.get(b, "name", ""), "edo-")
 	msg := sprintf("bucket %q: name must start with \"edo-\"", [bucket_name(b)])
 }
+
+# --- Storage class ---------------------------------------------------------
+# Mirrors the module's allowlist. A bucket that bypasses the module cannot pick
+# a class with a minimum-storage-duration billing surprise.
+allowed_storage_classes := {"STANDARD", "NEARLINE"}
+
+deny contains msg if {
+	some b in buckets
+	class := object.get(b, "storage_class", "STANDARD")
+	class != null
+	not class in allowed_storage_classes
+	msg := sprintf("bucket %q: storage_class must be one of %v (got %v)", [bucket_name(b), allowed_storage_classes, class])
+}
+
+# --- Lifecycle deletion safety ---------------------------------------------
+# The platform may expire NONCURRENT versions, never live objects. A Delete rule
+# that is not scoped to ARCHIVED would silently destroy data a team can still
+# see — the one change to a bucket that cannot be undone, so it is checked here
+# independently of the module as well as in it.
+deny contains msg if {
+	some b in buckets
+	some rule in object.get(b, "lifecycle_rule", [])
+	some action in object.get(rule, "action", [])
+	action.type == "Delete"
+	not deletes_only_noncurrent(rule)
+	msg := sprintf("bucket %q: a Delete lifecycle rule must be scoped to noncurrent versions (with_state = \"ARCHIVED\")", [bucket_name(b)])
+}
+
+deletes_only_noncurrent(rule) if {
+	some cond in object.get(rule, "condition", [])
+	cond.with_state == "ARCHIVED"
+}
