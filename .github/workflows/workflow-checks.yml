@@ -1,0 +1,63 @@
+name: workflow-checks
+
+# Credential-free checks for the CI machinery itself. The workflows delegate
+# their shell to .github/scripts/*.sh and their PR/Issue reporting to
+# .github/scripts/*.js; nothing else validates those files, so lint them here.
+on:
+  pull_request:
+    paths:
+      - ".github/**"
+      - "scripts/**"
+      - "idp-bootstrap/*.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ACTIONLINT_VERSION: "1.7.7"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install actionlint
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bin"
+          curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C "${RUNNER_TEMP}/bin" actionlint
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+
+      - name: actionlint
+        # shellcheck is preinstalled on ubuntu-latest, and actionlint shells out
+        # to it for every `run:` block — so the bash still inline in the YAML is
+        # linted too, not just the extracted scripts.
+        run: actionlint -color
+
+      - name: shellcheck (extracted scripts)
+        run: shellcheck .github/scripts/*.sh scripts/*.sh idp-bootstrap/*.sh
+
+      - name: node --check (report modules)
+        # The report modules used to be inline `script:` blocks that github-script
+        # parsed at run time. Now they are files, so syntax-check them here.
+        run: for f in .github/scripts/*.js; do node --check "$f"; done
+
+      - name: local composite actions resolve
+        # actionlint does not check this: a mis-indented edit can fold the next
+        # line into the `uses:` scalar — valid YAML, lint-clean, broken at run time.
+        run: |
+          python3 -c "import yaml" 2>/dev/null \
+            || python3 -m pip install --quiet --disable-pip-version-check pyyaml
+          python3 .github/scripts/check-local-actions.py
+
+      - name: terraform version pinned consistently
+        # TF_VERSION is deliberately repeated in each workflow (visible from the
+        # repo, no hidden repo-variable) — so assert the copies agree.
+        run: |
+          versions=$(grep -h '^  TF_VERSION: ' .github/workflows/*.yml | sort -u)
+          if [ "$(echo "$versions" | wc -l)" -ne 1 ]; then
+            echo "!! TF_VERSION differs between workflows:"; echo "$versions"; exit 1
+          fi
+          echo "TF_VERSION consistent: $(echo "$versions" | tr -d ' ')"

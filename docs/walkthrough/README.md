@@ -44,8 +44,9 @@ disposable. See [PRD.md](../../PRD.md), [CLAUDE.md](../../CLAUDE.md), and the le
 - **Portal env:** a `.env` at repo root (gitignored) with a fine-grained `GITHUB_TOKEN`
   (Contents + Pull requests: read/write on `edoatley/idp-prototype`). Set
   `GITHUB_REPO=edoatley/idp-prototype` when running the portal.
-- **Repo state:** only `edo-dev-platform-demo` is live right now; earlier demo buckets were
-  decommissioned. Steps needing a fresh artifact offer both **"re-run to capture"** and a
+- **Repo state:** no buckets are live right now — `platform-demo` was decommissioned in #41
+  and `payments-discounts` in #42, so `idp-gitops/stacks/` is empty. Steps needing a fresh
+  artifact offer both **"re-run to capture"** (provision one via the portal in step 3) and a
   **reference permalink** to the original PR/run.
 
 ## How to use this guide

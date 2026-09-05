@@ -53,7 +53,11 @@ by `conftest verify`). They are independent so a gap in one is caught by the oth
 it needs `terraform`, `tflint`, `trivy` and `conftest` on your PATH.
 
 ## Status
-Phase 0 (`idp-bootstrap`: GCP project, state bucket, keyless WIF, CI service account) and
-Phase 1 (Terraform golden path + GitOps `plan`/`apply`) are **complete**; Phase 2 (the
-policy-as-code gate) is in progress. See [EVALUATION.md](./EVALUATION.md) for per-phase
-learnings and [CLAUDE.md](./CLAUDE.md) for the phase plan.
+Phases 0-5 are **complete**: GCP + CI foundations, the Terraform golden path, the
+policy-as-code gate, the thin portal, day-2 (drift + decommission), and the visibility
+dashboard. Phase 6 — the guided walkthrough — is in progress in
+[`docs/walkthrough/`](./docs/walkthrough/README.md). Backstage is deferred/optional.
+
+See [EVALUATION.md](./EVALUATION.md) for per-phase learnings, [CLAUDE.md](./CLAUDE.md) for the
+phase plan, and [docs/portal-to-terraform.md](./docs/portal-to-terraform.md) for how a portal
+request becomes Terraform.

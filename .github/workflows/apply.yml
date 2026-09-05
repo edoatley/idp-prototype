@@ -34,24 +34,7 @@ jobs:
 
       - name: Detect changed stacks
         id: detect
-        run: |
-          base='${{ github.event.before }}'
-          # First push to a branch reports an all-zero "before"; fall back to the parent.
-          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            base=$(git rev-parse HEAD~1)
-          fi
-          mapfile -t dirs < <(git diff --name-only "$base" "$GITHUB_SHA" -- 'idp-gitops/stacks/' \
-            | awk -F/ 'NF>=4 {print $1"/"$2"/"$3"/"$4}' | sort -u)
-          stacks=()
-          for d in "${dirs[@]}"; do
-            if [ -f "$d/main.tf" ]; then stacks+=("$d"); fi   # ignore deletions (destroy is a separate pipeline)
-          done
-          if [ ${#stacks[@]} -eq 0 ]; then
-            echo "stacks=[]" >> "$GITHUB_OUTPUT"
-          else
-            echo "stacks=$(printf '%s\n' "${stacks[@]}" | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
-          fi
-          echo "Changed stacks: ${stacks[*]:-none}"
+        run: .github/scripts/detect-stacks.sh --changed --base '${{ github.event.before }}' --head "$GITHUB_SHA"
 
   apply:
     needs: detect
@@ -86,7 +69,7 @@ jobs:
           terraform -chdir=${{ matrix.stack }} apply -auto-approve -input=false 2>&1 | tee /tmp/apply.txt
           code=${PIPESTATUS[0]}
           terraform -chdir=${{ matrix.stack }} output -json > /tmp/outputs.json 2>/dev/null || echo '{}' > /tmp/outputs.json
-          exit $code
+          exit "$code"
 
       - name: Comment apply result on the originating PR
         if: always()
@@ -97,38 +80,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
-            const stack = '${{ matrix.stack }}';
-            const outcome = '${{ steps.apply.outcome }}';
-            const { owner, repo } = context.repo;
-            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const report = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/report-apply.js`);
+            await report({ github, context, core,
+              stack: '${{ matrix.stack }}',
+              outcome: '${{ steps.apply.outcome }}' });
 
-            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-              owner, repo, commit_sha: context.sha,
-            });
-            const pr = prs.find((p) => p.merged_at) ?? prs[0];
-            if (!pr) { core.info('No PR associated with this commit; skipping comment.'); return; }
-
-            let outputs = {};
-            try { outputs = JSON.parse(fs.readFileSync('/tmp/outputs.json', 'utf8')); } catch (e) {}
-            const bucket = outputs.bucket_name?.value ?? '(n/a)';
-            const label = outcome === 'success' ? '✅ Applied' : '❌ Apply failed';
-            const marker = `<!-- tf-apply:${stack} -->`;
-            const body = [
-              marker,
-              `### ${label} — \`${stack}\``,
-              outcome === 'success'
-                ? `Provisioned **\`${bucket}\`** via Workload Identity Federation.`
-                : `Apply failed — see the run for details.`,
-              '',
-              `- Outputs: \`${JSON.stringify(outputs)}\``,
-              `- [Apply run](${runUrl}) · commit \`${context.sha.slice(0, 7)}\` · ${new Date().toISOString()}`,
-            ].join('\n');
-
-            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: pr.number });
-            const existing = comments.find((c) => c.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-            } else {
-              await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
-            }
