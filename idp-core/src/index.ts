@@ -10,3 +10,4 @@ export { listBuckets, defaultStacksDir, type BucketRecord } from './inventory';
 export { makeGh, openBucketPR, openDecommissionPR, type GhContext, type OpenPrResult, type OpenPrParams, type DecommissionParams } from './github';
 export { deliveryMetrics, type DeliveryMetrics, type GhReadParams, type RecentRequest } from './metrics';
 export { compliance, type Compliance, type DriftItem } from './compliance';
+export { GUARDRAILS, DEFAULT_SETTINGS, RESERVED_LABELS, type Guardrails, type BucketSettings } from './guardrails';
