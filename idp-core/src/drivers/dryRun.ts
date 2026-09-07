@@ -1,4 +1,4 @@
-import type { ChangeDriver, ChangeRequest, RequestStatus, SubmittedChange } from '../change';
+import type { ChangeDriver, ChangeRequest, OpenChange, RequestStatus, SubmittedChange } from '../change';
 
 // Renders a change without submitting it. Two jobs:
 //   - `--dry-run` / `?dryRun=true`: show a caller the reviewable diff BEFORE
@@ -22,6 +22,11 @@ export class DryRunDriver implements ChangeDriver {
 
   async listOpen(): Promise<RequestStatus[]> {
     return [];
+  }
+
+  // A dry run submits nothing, so nothing it did can ever be in flight.
+  async findOpenFor(): Promise<OpenChange | null> {
+    return null;
   }
 }
 

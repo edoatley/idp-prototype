@@ -518,6 +518,18 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /**
+         * @description The credential is valid but not permitted to do this — usually a missing repository
+         *     permission, or GitHub's rate limit.
+         */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description No such resource. */
         NotFound: {
             headers: {
@@ -615,6 +627,7 @@ export interface operations {
             202: components["responses"]["RequestAccepted"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             /**
              * @description A bucket with this derived name already exists, or another change request is
              *     already in flight against it.
@@ -627,6 +640,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            502: components["responses"]["UpstreamUnavailable"];
         };
     };
     describeBucket: {
@@ -674,8 +688,10 @@ export interface operations {
             200: components["responses"]["DryRun"];
             202: components["responses"]["RequestAccepted"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["RequestInFlight"];
+            502: components["responses"]["UpstreamUnavailable"];
         };
     };
     updateBucket: {
@@ -704,8 +720,10 @@ export interface operations {
             202: components["responses"]["RequestAccepted"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["RequestInFlight"];
+            502: components["responses"]["UpstreamUnavailable"];
         };
     };
     listRequests: {
@@ -729,6 +747,8 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            502: components["responses"]["UpstreamUnavailable"];
         };
     };
     getRequest: {
@@ -752,7 +772,9 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            502: components["responses"]["UpstreamUnavailable"];
         };
     };
     listTeams: {
@@ -822,6 +844,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             502: components["responses"]["UpstreamUnavailable"];
         };
     };
@@ -844,6 +867,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             502: components["responses"]["UpstreamUnavailable"];
         };
     };

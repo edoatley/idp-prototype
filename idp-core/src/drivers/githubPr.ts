@@ -1,5 +1,14 @@
 import { makeGh } from '../github';
-import type { ChangeDriver, ChangeRequest, RequestStatus, RequestState, SubmittedChange, Intent } from '../change';
+import { ChangeInFlightError } from '../change';
+import type {
+  ChangeDriver,
+  ChangeRequest,
+  OpenChange,
+  RequestStatus,
+  RequestState,
+  SubmittedChange,
+  Intent,
+} from '../change';
 
 // The GitOps driver: a change request becomes ONE commit on a new branch, then a
 // pull request. Adds, edits and deletions all travel in the same tree, so a
@@ -64,7 +73,23 @@ export class GitHubPrDriver implements ChangeDriver {
       tree: newTree.data.sha,
       parents: [baseSha],
     });
-    await this.gh('POST', '/git/refs', { ref: `refs/heads/${change.branch}`, sha: commit.data.sha });
+    // Branch names are deterministic per intent + stack, so creating the ref IS
+    // the concurrency check: GitHub refuses a ref that already exists. A
+    // read-then-write pre-check can be raced; this cannot, because the refusal
+    // comes from the same operation that would have done the work.
+    const ref422 = 422;
+    const created = await this.gh<{ message?: string }>(
+      'POST',
+      '/git/refs',
+      { ref: `refs/heads/${change.branch}`, sha: commit.data.sha },
+      { allow: [ref422] },
+    );
+    if (created.status === ref422) {
+      throw new ChangeInFlightError(
+        change.target.bucketName,
+        `A change is already open against ${change.target.bucketName} (branch ${change.branch} exists). Merge or close it first.`,
+      );
+    }
 
     const pr = await this.gh<{ html_url: string; number: number }>('POST', '/pulls', {
       title: change.title,
@@ -81,12 +106,13 @@ export class GitHubPrDriver implements ChangeDriver {
    * would open cleanly and only fail at apply, after a human had reviewed it.
    */
   private async refuseIfStackExists(stackDir: string): Promise<void> {
-    const existing = await this.gh<unknown>('GET', `/contents/${stackDir}?ref=${this.base}`);
-    if (existing.status >= 200 && existing.status < 300) {
-      throw new Error(`stack ${stackDir} already exists — pick a different name.`);
-    }
+    // 404 is the expected answer here — it means the stack is free — so it is
+    // allowed through rather than raised. Any other failure still raises.
+    const existing = await this.gh<unknown>('GET', `/contents/${stackDir}?ref=${this.base}`, undefined, {
+      allow: [404],
+    });
     if (existing.status !== 404) {
-      throw new Error(`unexpected status ${existing.status} checking for an existing stack.`);
+      throw new Error(`stack ${stackDir} already exists — pick a different name.`);
     }
   }
 
@@ -96,9 +122,19 @@ export class GitHubPrDriver implements ChangeDriver {
   }
 
   async listOpen(): Promise<RequestStatus[]> {
+    return Promise.all((await this.openChangePrs()).map((pr) => this.statusOf(pr)));
+  }
+
+  async findOpenFor(bucketId: string): Promise<OpenChange | null> {
+    // One list request, no per-PR calls: `describe` is pure parsing.
+    const match = (await this.openChangePrs()).map(describe).find((c) => c.bucketId === bucketId);
+    return match ?? null;
+  }
+
+  /** Open PRs that this platform opened — a request id in the body is the marker. */
+  private async openChangePrs(): Promise<PullRequest[]> {
     const prs = await this.gh<PullRequest[]>('GET', '/pulls?state=open&per_page=100');
-    const requests = (prs.data ?? []).filter((pr) => requestIdOf(pr.body) !== null);
-    return Promise.all(requests.map((pr) => this.statusOf(pr)));
+    return (prs.data ?? []).filter((pr) => requestIdOf(pr.body) !== null);
   }
 
   private async findPr(requestId: string): Promise<PullRequest | null> {
@@ -116,11 +152,7 @@ export class GitHubPrDriver implements ChangeDriver {
   }
 
   private async statusOf(pr: PullRequest): Promise<RequestStatus> {
-    const requestId = requestIdOf(pr.body)!;
-    const intent = intentOf(pr.title);
-    const stackDir = stackDirOf(pr.body) ?? '';
-    const bucketId = bucketIdOf(pr.title) ?? '';
-
+    const { requestId, intent, stackDir, bucketId, url, number } = describe(pr);
     const { status, message } = await this.resolveState(pr, intent);
 
     return {
@@ -131,7 +163,7 @@ export class GitHubPrDriver implements ChangeDriver {
       stackDir,
       submittedAt: pr.created_at,
       ...(message ? { message } : {}),
-      review: { url: pr.html_url, number: pr.number },
+      review: { url, number },
     };
   }
 
@@ -182,6 +214,18 @@ interface PullRequest {
   merged_at: string | null;
   html_url: string;
   head: { sha: string; ref?: string };
+}
+
+/** Everything a PR says about its change, by parsing alone — no requests. */
+function describe(pr: PullRequest): OpenChange {
+  return {
+    requestId: requestIdOf(pr.body)!,
+    intent: intentOf(pr.title),
+    stackDir: stackDirOf(pr.body) ?? '',
+    bucketId: bucketIdOf(pr.title) ?? '',
+    url: pr.html_url,
+    number: pr.number,
+  };
 }
 
 // The PR body is the carrier for a request's identity. It is written by

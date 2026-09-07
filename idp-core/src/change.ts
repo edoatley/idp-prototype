@@ -64,10 +64,41 @@ export interface RequestStatus {
   review: { url: string; number?: number };
 }
 
+/**
+ * Raised when a change is already open against the same target.
+ *
+ * A domain error, not a GitHub one: "one writer at a time" is the platform's
+ * rule, and a driver that enforced it differently would still report it this way.
+ */
+export class ChangeInFlightError extends Error {
+  constructor(readonly bucketId: string, detail: string) {
+    super(detail);
+    this.name = 'ChangeInFlightError';
+  }
+}
+
+/** What is known about an open change without asking how its checks are doing. */
+export interface OpenChange {
+  requestId: string;
+  intent: Intent;
+  bucketId: string;
+  stackDir: string;
+  url: string;
+  number: number;
+}
+
 export interface ChangeDriver {
   submit(change: ChangeRequest): Promise<SubmittedChange>;
   status(requestId: string): Promise<RequestStatus | null>;
   listOpen(): Promise<RequestStatus[]>;
+  /**
+   * The open change targeting `bucketId`, if any.
+   *
+   * Deliberately separate from `listOpen()`: answering "is anything in flight?"
+   * must not cost a status resolution per open change, because every write asks
+   * it. Status is what `listOpen()` is for.
+   */
+  findOpenFor(bucketId: string): Promise<OpenChange | null>;
 }
 
 // --- Plan builders ---------------------------------------------------------

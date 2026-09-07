@@ -115,6 +115,8 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '502': { $ref: '#/components/responses/UpstreamUnavailable' }
 
   /v1/buckets/{bucketId}:
     parameters:
@@ -161,6 +163,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/RequestInFlight' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '502': { $ref: '#/components/responses/UpstreamUnavailable' }
 
     delete:
       operationId: deleteBucket
@@ -181,6 +185,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/RequestInFlight' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '502': { $ref: '#/components/responses/UpstreamUnavailable' }
 
   /v1/requests:
     get:
@@ -202,6 +208,8 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/Request' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '502': { $ref: '#/components/responses/UpstreamUnavailable' }
 
   /v1/requests/{requestId}:
     get:
@@ -223,7 +231,9 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Request' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '502': { $ref: '#/components/responses/UpstreamUnavailable' }
 
   /v1/catalog/teams:
     get:
@@ -283,6 +293,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/DeliveryMetrics' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '502': { $ref: '#/components/responses/UpstreamUnavailable' }
 
   /v1/compliance:
@@ -298,6 +309,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Compliance' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '502': { $ref: '#/components/responses/UpstreamUnavailable' }
 
   /healthz:
@@ -372,6 +384,14 @@ components:
 
     Unauthorized:
       description: A GitHub bearer token is required, or the one supplied was rejected.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+    Forbidden:
+      description: |
+        The credential is valid but not permitted to do this — usually a missing repository
+        permission, or GitHub's rate limit.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

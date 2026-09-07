@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { makeFetch } from './fakeFetch';
 import { GitHubPrDriver } from '../src/drivers/githubPr';
 import { DryRunDriver, dryRunResult } from '../src/drivers/dryRun';
-import { planCreate, planUpdate, planDelete } from '../src/change';
+import { planCreate, planUpdate, planDelete, ChangeInFlightError } from '../src/change';
+import { GitHubError } from '../src/github';
 import { DEFAULT_SETTINGS } from '../src/guardrails';
 import type { BucketRecord } from '../src/inventory';
 
@@ -246,5 +247,108 @@ describe('planUpdate', () => {
     expect(change.title).toBe('Update bucket edo-dev-checkout-orders');
     expect(change.branch).toBe('idp/update-dev-checkout-orders');
     expect(change.body).toContain('expire noncurrent versions after 30 days');
+  });
+});
+
+// The failure paths. These are the tests whose absence let a rejected credential
+// reach a user as "Internal error": every other test in this file stubs GitHub
+// with a SUCCESSFUL response, so nothing exercised what happens when it does not.
+describe('GitHub failures keep their cause', () => {
+  it('raises the status and GitHub\'s own message instead of returning an error body as data', async () => {
+    const { driver: d } = driver([
+      { method: 'GET', match: /\/pulls\?state=open/, status: 401, body: { message: 'Bad credentials' } },
+    ]);
+
+    const err = await d.listOpen().catch((e) => e);
+    expect(err).toBeInstanceOf(GitHubError);
+    expect(err.status).toBe(401);
+    expect(err.githubMessage).toBe('Bad credentials');
+    // Previously this surfaced as "prs.data.filter is not a function".
+    expect(err.message).toContain('Bad credentials');
+  });
+
+  it('raises on a rate limit rather than reporting an empty result', async () => {
+    const { driver: d } = driver([
+      { method: 'GET', match: /\/pulls\?state=open/, status: 403, body: { message: 'API rate limit exceeded' } },
+    ]);
+    await expect(d.listOpen()).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('reports the status, not a parse error, when a proxy returns an HTML page', async () => {
+    const html = (async () => ({ status: 502, text: async () => '<html>bad gateway</html>' })) as unknown as typeof fetch;
+    const d = new GitHubPrDriver({ token: 't', owner: 'o', repo: 'r', fetchImpl: html });
+    await expect(d.listOpen()).rejects.toMatchObject({ status: 502 });
+  });
+
+  it('still tolerates the 404 the collision guard depends on', async () => {
+    // 404 means "the stack is free" — the one status that must NOT raise.
+    const { driver: d } = driver(submitHandlers(11));
+    await expect(d.submit(createChange)).resolves.toMatchObject({ number: 11 });
+  });
+});
+
+// Branch names are deterministic per intent+stack, so ref creation is the lock.
+describe('creating the branch is the concurrency lock', () => {
+  it('refuses when the branch already exists, rather than opening a second PR', async () => {
+    const handlers = submitHandlers(0)
+      .filter((h) => !h.match.source.includes('refs') && !h.match.source.includes('pulls'))
+      .concat([
+        { method: 'POST', match: /\/git\/refs/, status: 422, body: { message: 'Reference already exists' } },
+        // A PR call here would mean the guard failed to stop the write.
+        { method: 'POST', match: /\/pulls/, status: 201, body: { html_url: 'u', number: 1 } },
+      ]);
+    const { driver: d, calls } = driver(handlers);
+
+    const err = await d.submit(createChange).catch((e) => e);
+    expect(err).toBeInstanceOf(ChangeInFlightError);
+    expect(err.bucketId).toBe('edo-dev-checkout-orders');
+    expect(calls.some((c) => c.url.endsWith('/pulls'))).toBe(false);
+  });
+});
+
+describe('findOpenFor', () => {
+  const openPr = (title: string, requestId: string, number: number) => ({
+    number,
+    title,
+    body: `Stack: \`idp-gitops/stacks/dev/checkout-orders\` · request-id \`${requestId}\`.`,
+    state: 'open',
+    created_at: '2026-09-05T10:00:00Z',
+    merged_at: null,
+    html_url: `https://github.com/x/y/pull/${number}`,
+    head: { sha: 'SHA' },
+  });
+
+  const listing = (prs: unknown[]) => [
+    { method: 'GET', match: /\/pulls\?state=open/, status: 200, body: prs },
+  ];
+
+  it('finds the open change targeting a bucket', async () => {
+    const { driver: d } = driver(
+      listing([openPr('Update bucket edo-dev-checkout-orders', 'req-live', 7)]),
+    );
+    expect(await d.findOpenFor('edo-dev-checkout-orders')).toMatchObject({
+      requestId: 'req-live',
+      intent: 'update',
+      number: 7,
+      url: 'https://github.com/x/y/pull/7',
+    });
+  });
+
+  it('costs exactly one request, whatever the number of open changes', async () => {
+    // The point of the method: answering "is anything in flight?" must not
+    // resolve a status — and a check-run call per open PR — on every write.
+    const prs = Array.from({ length: 5 }, (_, i) =>
+      openPr(`Provision bucket edo-dev-team-${i}`, `req-${i}`, i + 1),
+    );
+    const { driver: d, calls } = driver(listing(prs));
+
+    await d.findOpenFor('edo-dev-team-3');
+    expect(calls).toHaveLength(1);
+    expect(calls.every((c) => !c.url.includes('check-runs'))).toBe(true);
+  });
+
+  it('is null when nothing targets that bucket', async () => {
+    const { driver: d } = driver(listing([openPr('Provision bucket edo-dev-other-thing', 'req-x', 3)]));
+    expect(await d.findOpenFor('edo-dev-checkout-orders')).toBeNull();
   });
 });
