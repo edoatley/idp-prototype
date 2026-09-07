@@ -335,12 +335,18 @@ export interface components {
             owningTeam: string;
             environment: components["schemas"]["Environment"];
             /**
-             * @description GitHub handle to record as the requester. For an automated caller, the handle of
-             *     the bot or the team it acts for — the inventory should always name someone
-             *     accountable.
+             * @description GitHub handle to record as the requester — who the bucket is *for*.
+             *
+             *     Defaults to the authenticated caller, which is what an interactive or automated
+             *     client should rely on. Supply it only when the caller is acting on someone else's
+             *     behalf, as the portal's web form does: a browser visitor holds no token, so the
+             *     form asks them who they are.
+             *
+             *     Changes to an existing bucket are always attributed to the token that made them
+             *     and cannot be set this way.
              * @example octocat
              */
-            requester: string;
+            requester?: string;
             settings?: components["schemas"]["BucketSettings"];
         };
         /**

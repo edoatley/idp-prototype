@@ -535,7 +535,7 @@ components:
         golden path — the smallest choice surface that still leaves a team in control of what
         matters.
       additionalProperties: false
-      required: [name, owningTeam, environment, requester]
+      required: [name, owningTeam, environment]
       properties:
         name:
           type: string
@@ -550,9 +550,15 @@ components:
         requester:
           type: string
           description: |
-            GitHub handle to record as the requester. For an automated caller, the handle of
-            the bot or the team it acts for — the inventory should always name someone
-            accountable.
+            GitHub handle to record as the requester — who the bucket is *for*.
+
+            Defaults to the authenticated caller, which is what an interactive or automated
+            client should rely on. Supply it only when the caller is acting on someone else's
+            behalf, as the portal's web form does: a browser visitor holds no token, so the
+            form asks them who they are.
+
+            Changes to an existing bucket are always attributed to the token that made them
+            and cannot be set this way.
           pattern: '^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$'
           examples: [octocat]
         settings: { $ref: '#/components/schemas/BucketSettings' }

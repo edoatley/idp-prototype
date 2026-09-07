@@ -191,7 +191,10 @@ export function buildProgram(): Command {
     .requiredOption('--name <name>', 'short bucket name')
     .requiredOption('--team <team>', 'owning team id')
     .requiredOption('--env <environment>', 'environment (dev, test or prod)')
-    .option('--requester <handle>', 'GitHub handle to record as the requester', process.env.USER)
+    // No default: $USER is a local account name, not a GitHub handle, and
+    // guessing one would record a fiction in the inventory. Left unset, the API
+    // attributes the request to the token that made it.
+    .option('--requester <handle>', 'record the bucket as requested by someone else (default: you)')
     .option('--retention-days <days>', 'expire noncurrent versions after N days', (v) => Number(v))
     .addOption(new Option('--storage-class <class>', 'storage class').choices(['STANDARD', 'NEARLINE']))
     .option('--label <key=value>', 'extra label (repeatable)', (v: string, acc: string[]) => [...acc, v], [])
@@ -212,7 +215,7 @@ export function buildProgram(): Command {
           name: opts.name,
           owningTeam: opts.team,
           environment: opts.env,
-          requester: opts.requester,
+          ...(opts.requester ? { requester: opts.requester } : {}),
           ...(Object.keys(settings).length ? { settings } : {}),
         },
         opts.dryRun,
