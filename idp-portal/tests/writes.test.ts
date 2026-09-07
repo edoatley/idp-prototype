@@ -1,6 +1,7 @@
 import path from 'node:path';
 import request from 'supertest';
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { clearIdentityCache } from 'idp-core';
 
 // Write-path contract tests. Requests AND responses are validated against
 // contracts/openapi.yaml by express-openapi-validator, so these also prove the
@@ -22,7 +23,12 @@ type Handler = { method: string; match: RegExp; status: number; body: unknown };
 
 const OPEN_PRS_EMPTY: Handler = { method: 'GET', match: /\/pulls\?state=open/, status: 200, body: [] };
 
+// Writes resolve the caller's identity from their token rather than trusting a
+// self-declared name, so every write stub has to answer /user.
+const WHOAMI: Handler = { method: 'GET', match: /api\.github\.com\/user$/, status: 200, body: { login: 'ada-okafor' } };
+
 const SUBMIT_OK: Handler[] = [
+  WHOAMI,
   { method: 'GET', match: /\/contents\//, status: 404, body: { message: 'Not Found' } },
   { method: 'GET', match: /\/git\/ref\/heads\/main/, status: 200, body: { object: { sha: 'BASE' } } },
   { method: 'GET', match: /\/git\/commits\/BASE/, status: 200, body: { tree: { sha: 'BASETREE' } } },
@@ -52,6 +58,9 @@ async function app() {
 
 beforeEach(() => {
   vi.unstubAllGlobals();
+  // The login cache is process-wide; without this a stubbed identity would leak
+  // into the next test.
+  clearIdentityCache();
 });
 
 const validCreate = { name: 'invoices', owningTeam: 'payments', environment: 'dev', requester: 'ada-okafor' };
@@ -330,5 +339,90 @@ describe('upstream failures are reported as the caller\'s problem or ours, corre
       .send(validCreate)
       .expect(409);
     expect(res.body.type).toBe('/problems/request-in-flight');
+  });
+});
+
+// Attribution comes from the credential, not from what the caller says about
+// themselves. Previously PATCH and DELETE read an `x-idp-requester` header that
+// existed in neither the contract nor the CLI, so a change was recorded against
+// whoever created the bucket.
+describe('changes are attributed to the authenticated caller', () => {
+  const asUser = (login: string): Handler[] => [
+    { method: 'GET', match: /api\.github\.com\/user$/, status: 200, body: { login } },
+    ...SUBMIT_OK.filter((h) => !h.match.source.includes('user')),
+    OPEN_PRS_EMPTY,
+  ];
+
+  const committedFile = (name: string): string =>
+    (calls.find((c) => c.url.includes('/git/trees'))!.body as {
+      tree: Array<{ path: string; content: string }>;
+    }).tree.find((t) => t.path.endsWith(name))!.content;
+
+  it('records the token holder as the author of an update, not the original requester', async () => {
+    stubGitHub(asUser('ravi-menon'));
+    await request(await app())
+      .patch('/v1/buckets/edo-dev-checkout-orders')
+      .set('authorization', TOKEN)
+      .send({ retentionDays: 30 })
+      .expect(202);
+
+    const metadata = committedFile('metadata.yaml');
+    expect(metadata).toContain('updated_by: ravi-menon');
+    // The bucket's provenance is untouched — mei-lin asked for it originally.
+    expect(metadata).toContain('requester: mei-lin');
+  });
+
+  it('ignores a header trying to claim someone else made the change', async () => {
+    stubGitHub(asUser('ravi-menon'));
+    await request(await app())
+      .patch('/v1/buckets/edo-dev-checkout-orders')
+      .set('authorization', TOKEN)
+      .set('x-idp-requester', 'someone-else')
+      .send({ retentionDays: 30 })
+      .expect(202);
+
+    expect(committedFile('metadata.yaml')).toContain('updated_by: ravi-menon');
+  });
+
+  it('defaults a new bucket to the caller when no requester is given', async () => {
+    stubGitHub(asUser('mei-lin'));
+    await request(await app())
+      .post('/v1/buckets')
+      .set('authorization', TOKEN)
+      .send({ name: 'invoices', owningTeam: 'payments', environment: 'dev' })
+      .expect(202);
+
+    expect(committedFile('metadata.yaml')).toContain('requester: mei-lin');
+  });
+
+  it('still honours an explicit requester, which the portal form needs', async () => {
+    // A browser visitor holds no token, so the form asks who they are.
+    stubGitHub(asUser('idp-bot'));
+    await request(await app())
+      .post('/v1/buckets')
+      .set('authorization', TOKEN)
+      .send({ ...validCreate, requester: 'tomas-novak' })
+      .expect(202);
+
+    expect(committedFile('metadata.yaml')).toContain('requester: tomas-novak');
+  });
+
+  it('spends no identity call on a dry run, which opens nothing', async () => {
+    stubGitHub([]); // any call at all would throw
+    await request(await app())
+      .post('/v1/buckets?dryRun=true')
+      .set('authorization', TOKEN)
+      .send({ name: 'invoices', owningTeam: 'payments', environment: 'dev' })
+      .expect(200);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('reports a token GitHub will not identify as 401, not 500', async () => {
+    stubGitHub([{ method: 'GET', match: /api\.github\.com\/user$/, status: 401, body: { message: 'Bad credentials' } }]);
+    await request(await app())
+      .patch('/v1/buckets/edo-dev-checkout-orders')
+      .set('authorization', TOKEN)
+      .send({ retentionDays: 30 })
+      .expect(401);
   });
 });

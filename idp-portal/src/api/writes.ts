@@ -12,6 +12,7 @@ import {
   GitHubPrDriver,
   DryRunDriver,
   dryRunResult,
+  viewerLogin,
   type BucketRecord,
   type BucketSettings,
   type ChangeRequest,
@@ -50,6 +51,14 @@ export function writeRouter(): Router {
 
   const driverFor = (req: Parameters<typeof requireToken>[0]): ChangeDriver =>
     new GitHubPrDriver({ token: requireToken(req), ...repoFromEnv() });
+
+  /**
+   * Who is making this change, according to their credential rather than their
+   * say-so. A dry run opens nothing, so it needs no identity and should not
+   * spend a call finding one.
+   */
+  const authorOf = async (req: Parameters<typeof requireToken>[0]): Promise<string> =>
+    String(req.query.dryRun) === 'true' ? 'dry-run' : viewerLogin(requireToken(req));
 
   /**
    * One writer at a time. Two open changes against the same stack would race on
@@ -130,7 +139,7 @@ export function writeRouter(): Router {
         name: string;
         owningTeam: string;
         environment: string;
-        requester: string;
+        requester?: string;
         settings?: SettingsPatch;
       };
       const input = { name: body.name, owning_team: body.owningTeam, environment: body.environment };
@@ -140,9 +149,12 @@ export function writeRouter(): Router {
       // cannot express and which must hold for non-HTTP callers too.
       raise([...validate(input, loadConfig()), ...validateSettings(body.settings as Partial<BucketSettings>)]);
 
+      // `requester` names who the bucket is FOR and may be supplied — the portal
+      // form needs that, since a browser visitor holds no token. Absent, it is
+      // the authenticated caller.
       const change = planCreate({
         request: input,
-        requester: body.requester,
+        requester: body.requester ?? (await authorOf(req)),
         requestId: generateRequestId(input.owning_team, input.name),
         date: today(),
         settings: body.settings as Partial<BucketSettings>,
@@ -171,9 +183,9 @@ export function writeRouter(): Router {
         record,
         name: shortNameOf(record),
         settings,
-        // The change's author is whoever holds the token; the bucket's original
-        // requester stays untouched as provenance.
-        requester: (req.get('x-idp-requester') ?? record.requester) || 'idp-api',
+        // The change's author is whoever holds the token — not the bucket's
+        // original requester, which stays untouched as provenance.
+        requester: await authorOf(req),
         requestId: generateRequestId(record.owning_team, shortNameOf(record)),
         date: today(),
       });
@@ -188,7 +200,7 @@ export function writeRouter(): Router {
       const record = findRecord(req.params.bucketId!);
       const change = planDelete({
         record,
-        requester: (req.get('x-idp-requester') ?? record.requester) || 'idp-api',
+        requester: await authorOf(req),
         requestId: generateRequestId(record.owning_team, 'decommission'),
       });
 

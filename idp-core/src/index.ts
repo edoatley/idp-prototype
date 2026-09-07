@@ -8,6 +8,7 @@ export { generateRequestId, type RequestIdOptions } from './requestId';
 export { generate, settingsOf, type GenerateContext, type GeneratedStack } from './generator';
 export { listBuckets, defaultStacksDir, type BucketRecord } from './inventory';
 export { makeGh, GitHubError, type GhContext, type GhOptions } from './github';
+export { viewerLogin, clearIdentityCache } from './identity';
 export { deliveryMetrics, type DeliveryMetrics, type GhReadParams, type RecentRequest } from './metrics';
 export { compliance, type Compliance, type DriftItem } from './compliance';
 export { GUARDRAILS, DEFAULT_SETTINGS, RESERVED_LABELS, type Guardrails, type BucketSettings } from './guardrails';
