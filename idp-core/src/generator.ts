@@ -1,5 +1,6 @@
 import type { BucketRequest } from './validate';
 import { DEFAULT_SETTINGS, type BucketSettings } from './guardrails';
+import { bucketNameFor, type Naming } from './naming';
 
 // Pure generator: request + context -> the exact stack files a human would
 // hand-write (mirrors idp-gitops/stacks/dev/platform-demo/). No I/O here so it
@@ -11,16 +12,24 @@ import { DEFAULT_SETTINGS, type BucketSettings } from './guardrails';
 // (see `assignments`) rather than baked into the template. A hand-aligned
 // template would silently break the moment a caller set a longer key.
 
-// Fixed platform facts (match platform-demo; see CLAUDE.md "Current platform state").
+// Phase 0 facts: the project and its state bucket. These are not in
+// platform/config.yaml because they are properties of the bootstrapped
+// environment rather than conventions a team can choose.
 const STATE_BUCKET = 'idp-prototype-edo-tfstate';
 const PROJECT_ID = 'idp-prototype-edo';
-const REGION = 'europe-west2';
+
+// org prefix and region are NOT constants: they are declared in
+// platform/config.yaml and passed in, so the config is the single source of
+// truth it claims to be.
+const DEFAULT_NAMING: Naming = { orgPrefix: 'edo', region: 'europe-west2' };
 
 export interface GenerateContext {
   requester: string;
   requestId: string;
   date: string; // YYYY-MM-DD
   settings?: Partial<BucketSettings>;
+  /** Platform conventions, from platform/config.yaml. */
+  naming?: Naming;
   /** Set when regenerating an existing stack, so the record says who changed it and when. */
   update?: { by: string; date: string };
 }
@@ -86,7 +95,8 @@ export function generate(req: BucketRequest, ctx: GenerateContext): GeneratedSta
   const dirName = `${req.owning_team}-${req.name}`;
   const prefix = `stacks/${req.environment}/${dirName}`;
   const stackDir = `idp-gitops/${prefix}`;
-  const bucketName = `edo-${req.environment}-${req.owning_team}-${req.name}`.toLowerCase();
+  const naming = ctx.naming ?? DEFAULT_NAMING;
+  const bucketName = bucketNameFor(naming.orgPrefix, req.environment, req.owning_team, req.name);
   const settings = settingsOf(ctx);
 
   // Only non-default settings are written, so a stack stays as small as the
@@ -123,7 +133,7 @@ terraform {
 
 provider "google" {
   project = "${PROJECT_ID}"
-  region  = "${REGION}"
+  region  = "${naming.region}"
 }
 
 module "bucket" {

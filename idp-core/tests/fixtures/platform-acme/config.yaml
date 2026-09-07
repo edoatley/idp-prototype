@@ -1,0 +1,8 @@
+# A second org's conventions — used to prove the platform reads config.yaml
+# rather than carrying 'edo' and 'europe-west2' around as constants.
+org_prefix: acme
+default_region: europe-west1
+environments:
+  - dev
+  - test
+  - prod

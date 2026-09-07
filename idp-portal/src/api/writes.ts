@@ -116,8 +116,17 @@ export function writeRouter(): Router {
       .json(acceptedRequest(change, submitted));
   }
 
+  // Naming conventions come from platform/config.yaml, never from a constant in
+  // this process — that file is what the module and the policy gate read too.
+  const namingOf = () => {
+    const cfg = loadConfig();
+    return { orgPrefix: cfg.orgPrefix, region: cfg.region };
+  };
+
+  const buckets = () => listBuckets(undefined, loadConfig().orgPrefix);
+
   const findRecord = (bucketId: string): BucketRecord => {
-    const record = listBuckets().find((b) => b.bucketName === bucketId);
+    const record = buckets().find((b) => b.bucketName === bucketId);
     if (!record) throw notFound(`No bucket ${bucketId}.`);
     return record;
   };
@@ -158,11 +167,12 @@ export function writeRouter(): Router {
         requestId: generateRequestId(input.owning_team, input.name),
         date: today(),
         settings: body.settings as Partial<BucketSettings>,
+        naming: namingOf(),
       });
 
       // A stack the platform already knows about is a conflict we can answer
       // immediately, without spending a round trip on GitHub.
-      if (listBuckets().some((b) => b.bucketName === change.target.bucketName)) {
+      if (buckets().some((b) => b.bucketName === change.target.bucketName)) {
         throw conflict(`Bucket ${change.target.bucketName} already exists.`, '/problems/bucket-exists');
       }
 
@@ -188,6 +198,7 @@ export function writeRouter(): Router {
         requester: await authorOf(req),
         requestId: generateRequestId(record.owning_team, shortNameOf(record)),
         date: today(),
+        naming: namingOf(),
       });
 
       await submit(req, res, change, { checkInFlight: true });

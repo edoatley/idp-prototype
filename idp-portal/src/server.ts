@@ -183,6 +183,7 @@ export function createApp(): express.Express {
       requester,
       requestId: generateRequestId(input.owning_team, input.name),
       date: new Date().toISOString().slice(0, 10),
+      naming: { orgPrefix: config.orgPrefix, region: config.region },
     });
 
     try {
