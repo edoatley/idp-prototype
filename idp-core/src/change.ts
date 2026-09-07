@@ -1,4 +1,5 @@
 import { generate, settingsOf } from './generator';
+import { bucketNameFromDir, type Naming } from './naming';
 import type { BucketRequest } from './validate';
 import type { BucketSettings } from './guardrails';
 import type { BucketRecord } from './inventory';
@@ -113,15 +114,19 @@ function branchFor(intent: Intent, target: ChangeTarget): string {
   return `idp/${intent}-${target.environment}-${dir}`;
 }
 
-function targetFor(req: BucketRequest): ChangeTarget {
+function targetFor(req: BucketRequest, naming: Naming): ChangeTarget {
   const dirName = `${req.owning_team}-${req.name}`;
   return {
     stackDir: `idp-gitops/stacks/${req.environment}/${dirName}`,
-    bucketName: `edo-${req.environment}-${dirName}`.toLowerCase(),
+    bucketName: bucketNameFromDir(naming.orgPrefix, req.environment, dirName),
     environment: req.environment,
     team: req.owning_team,
   };
 }
+
+// Matches the generator's fallback: callers that have not been given the platform
+// config still get the conventions the repo actually uses.
+const DEFAULT_NAMING: Naming = { orgPrefix: 'edo', region: 'europe-west2' };
 
 function requestOf(record: BucketRecord, name: string): BucketRequest {
   return { name, owning_team: record.owning_team, environment: record.environment };
@@ -133,16 +138,19 @@ export interface CreateInput {
   requestId: string;
   date: string;
   settings?: Partial<BucketSettings>;
+  naming?: Naming;
 }
 
 export function planCreate(input: CreateInput): ChangeRequest {
+  const naming = input.naming ?? DEFAULT_NAMING;
   const stack = generate(input.request, {
     requester: input.requester,
     requestId: input.requestId,
     date: input.date,
     settings: input.settings,
+    naming,
   });
-  const target = targetFor(input.request);
+  const target = targetFor(input.request, naming);
 
   return {
     intent: 'create',
@@ -168,6 +176,7 @@ export interface UpdateInput {
   requester: string;
   requestId: string;
   date: string;
+  naming?: Naming;
 }
 
 /**
@@ -181,15 +190,17 @@ export interface UpdateInput {
  * carried through untouched; the request id of the CHANGE is separate.
  */
 export function planUpdate(input: UpdateInput): ChangeRequest {
+  const naming = input.naming ?? DEFAULT_NAMING;
   const request = requestOf(input.record, input.name);
   const stack = generate(request, {
     requester: input.record.requester,
     requestId: input.record.request_id,
     date: input.record.created_at,
     settings: input.settings,
+    naming,
     update: { by: input.requester, date: input.date },
   });
-  const target = targetFor(request);
+  const target = targetFor(request, naming);
 
   return {
     intent: 'update',

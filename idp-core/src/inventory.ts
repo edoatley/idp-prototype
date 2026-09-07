@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
 import { DEFAULT_SETTINGS, type BucketSettings } from './guardrails';
+import { bucketNameFromDir } from './naming';
 
 // Reads the inventory straight from the GitOps source of truth: every stack's
 // metadata.yaml. No database — the repo IS the inventory (as in the PRD). This is
@@ -25,7 +26,7 @@ export function defaultStacksDir(): string {
   return process.env.STACKS_DIR ?? path.resolve(__dirname, '../../idp-gitops/stacks');
 }
 
-export function listBuckets(root: string = defaultStacksDir()): BucketRecord[] {
+export function listBuckets(root: string = defaultStacksDir(), orgPrefix = 'edo'): BucketRecord[] {
   if (!fs.existsSync(root)) return [];
   const records: BucketRecord[] = [];
   for (const env of fs.readdirSync(root)) {
@@ -51,7 +52,7 @@ export function listBuckets(root: string = defaultStacksDir()): BucketRecord[] {
       };
       records.push({
         stackDir: `idp-gitops/stacks/${env}/${name}`,
-        bucketName: `edo-${env}-${name}`, // dir name is already <team>-<name>
+        bucketName: bucketNameFromDir(orgPrefix, env, name), // dir name is already <team>-<name>
         type: m.type ?? 'gcs-bucket',
         owning_team: m.owning_team ?? '',
         environment: m.environment ?? env,

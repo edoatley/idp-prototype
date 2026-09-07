@@ -26,7 +26,7 @@ export function apiRouter(): Router {
 
   router.get('/v1/buckets', (req, res) => {
     const { environment, team } = req.query as { environment?: string; team?: string };
-    const buckets = listBuckets()
+    const buckets = listBuckets(undefined, loadConfig().orgPrefix)
       .filter((b) => !environment || b.environment === environment)
       .filter((b) => !team || b.owning_team === team)
       .map(toBucket);
@@ -34,7 +34,7 @@ export function apiRouter(): Router {
   });
 
   router.get('/v1/buckets/:bucketId', (req, res) => {
-    const record = listBuckets().find((b) => b.bucketName === req.params.bucketId);
+    const record = listBuckets(undefined, loadConfig().orgPrefix).find((b) => b.bucketName === req.params.bucketId);
     if (!record) throw notFound(`No bucket ${req.params.bucketId}.`);
     res.json(toBucket(record));
   });
