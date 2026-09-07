@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { listBuckets, loadConfig, deliveryMetrics, compliance } from 'idp-core';
-import { asyncRoute, notFound, upstreamUnavailable } from './problem';
+import { asyncRoute, notFound } from './problem';
 import { requireToken, repoFromEnv } from './auth';
 import { toBucket } from './mappers';
 
@@ -40,29 +40,20 @@ export function apiRouter(): Router {
   });
 
   // The oversight aggregates reach the GitHub API, so they need the caller's
-  // token. An upstream hiccup is reported as 502 — the platform being unable to
-  // answer is a different thing from the platform having nothing to report.
+  // token. Upstream failures are translated once, centrally, in problemHandler:
+  // wrapping them here as a blanket 502 would bury a rejected credential, which
+  // is the caller's problem and not an outage.
   router.get(
     '/v1/metrics',
     asyncRoute(async (req, res) => {
-      const token = requireToken(req);
-      try {
-        res.json(await deliveryMetrics({ token, ...repoFromEnv() }));
-      } catch (e) {
-        throw upstreamUnavailable((e as Error).message);
-      }
+      res.json(await deliveryMetrics({ token: requireToken(req), ...repoFromEnv() }));
     }),
   );
 
   router.get(
     '/v1/compliance',
     asyncRoute(async (req, res) => {
-      const token = requireToken(req);
-      try {
-        res.json(await compliance({ token, ...repoFromEnv() }));
-      } catch (e) {
-        throw upstreamUnavailable((e as Error).message);
-      }
+      res.json(await compliance({ token: requireToken(req), ...repoFromEnv() }));
     }),
   );
 

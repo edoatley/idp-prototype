@@ -270,3 +270,65 @@ describe('GET /v1/requests/{requestId}', () => {
     await request(await app()).get('/v1/requests/req-nope').set('authorization', TOKEN).expect(404);
   });
 });
+
+// What the caller is actually told when GitHub says no. Before statuses were
+// checked, every one of these was a 500 "Internal error" (or, for the reads, a
+// 502 whose detail was "filter is not a function") — a credential problem
+// reported as a platform bug.
+describe('upstream failures are reported as the caller\'s problem or ours, correctly', () => {
+  const rejects = (status: number, message: string): Handler[] => [
+    { method: 'GET', match: /./, status, body: { message } },
+    { method: 'POST', match: /./, status, body: { message } },
+  ];
+
+  it('turns a rejected token into 401, naming the cause', async () => {
+    stubGitHub(rejects(401, 'Bad credentials'));
+    const res = await request(await app())
+      .post('/v1/buckets')
+      .set('authorization', TOKEN)
+      .send(validCreate)
+      .expect(401);
+
+    expect(res.body.title).toBe('Unauthorized');
+    expect(res.body.detail).toContain('Bad credentials');
+    expect(res.body.detail).toMatch(/expired|permission|Contents/i);
+  });
+
+  it('turns a rate limit into 403, not a 500', async () => {
+    stubGitHub(rejects(403, 'API rate limit exceeded'));
+    const res = await request(await app())
+      .post('/v1/buckets')
+      .set('authorization', TOKEN)
+      .send(validCreate)
+      .expect(403);
+    expect(res.body.detail).toContain('rate limit');
+  });
+
+  it('reports a genuine GitHub outage as 502 — that one IS ours', async () => {
+    stubGitHub(rejects(503, 'Service unavailable'));
+    await request(await app()).post('/v1/buckets').set('authorization', TOKEN).send(validCreate).expect(502);
+  });
+
+  it.each(['/v1/metrics', '/v1/compliance'])('does not bury a rejected token behind a 502 on %s', async (route) => {
+    stubGitHub(rejects(401, 'Bad credentials'));
+    const res = await request(await app()).get(route).set('authorization', TOKEN).expect(401);
+    expect(res.body.detail).toContain('Bad credentials');
+  });
+
+  it('answers 409 when the branch already exists, even if the pre-check saw nothing', async () => {
+    // The race the read-then-write pre-check cannot close: listOpen comes back
+    // empty, but the ref already exists by the time we create it.
+    stubGitHub([
+      OPEN_PRS_EMPTY,
+      ...SUBMIT_OK.filter((h) => !h.match.source.includes('refs')),
+      { method: 'POST', match: /\/git\/refs/, status: 422, body: { message: 'Reference already exists' } },
+    ]);
+
+    const res = await request(await app())
+      .post('/v1/buckets')
+      .set('authorization', TOKEN)
+      .send(validCreate)
+      .expect(409);
+    expect(res.body.type).toBe('/problems/request-in-flight');
+  });
+});

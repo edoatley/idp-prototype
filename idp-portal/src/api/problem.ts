@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { GitHubError, ChangeInFlightError } from 'idp-core';
 
 // Errors in the RFC 9457 `application/problem+json` shape, as the contract
 // promises. One shape for every failure means a client writes one error path.
@@ -73,12 +74,54 @@ const TITLES: Record<number, { title: string; type: string }> = {
   409: { title: 'Conflict', type: '/problems/conflict' },
 };
 
+/**
+ * Translate an upstream GitHub failure into something the caller can act on.
+ *
+ * The distinction that matters: a rejected credential is the CALLER's problem
+ * and must say so (401/403), while GitHub being unreachable or confused is the
+ * platform's problem (502). Collapsing both into 500 — which is what happened
+ * before statuses were checked — tells a user with an expired token to go and
+ * read our logs.
+ */
+function fromGitHub(err: GitHubError): ApiProblem {
+  if (err.status === 401) {
+    return new ApiProblem(
+      401,
+      'Unauthorized',
+      `GitHub rejected the token (${err.githubMessage}). Check it has not expired and carries Contents + Pull requests write on the repo.`,
+      undefined,
+      '/problems/unauthorized',
+    );
+  }
+  if (err.status === 403) {
+    return new ApiProblem(
+      403,
+      'Forbidden',
+      `GitHub refused the request (${err.githubMessage}). This is usually a missing repository permission or a rate limit.`,
+      undefined,
+      '/problems/forbidden',
+    );
+  }
+  return new ApiProblem(
+    502,
+    'Upstream unavailable',
+    `GitHub returned ${err.status} for ${err.method} ${err.path}: ${err.githubMessage}`,
+    undefined,
+    '/problems/upstream-unavailable',
+  );
+}
+
 export function problemHandler(err: unknown, req: Request, res: Response, next: NextFunction): void {
   if (res.headersSent) return next(err);
 
   let problem: ApiProblem;
   if (err instanceof ApiProblem) {
     problem = err;
+  } else if (err instanceof GitHubError) {
+    problem = fromGitHub(err);
+  } else if (err instanceof ChangeInFlightError) {
+    // The platform's single-writer rule, raised by whichever layer noticed first.
+    problem = new ApiProblem(409, 'Conflict', err.message, undefined, '/problems/request-in-flight');
   } else {
     const v = err as ValidatorError;
     const status = typeof v.status === 'number' ? v.status : 500;

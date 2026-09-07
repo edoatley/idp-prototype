@@ -56,13 +56,17 @@ export function writeRouter(): Router {
    * shared Terraform state and the second would be planned against a base that
    * no longer reflects the first — so the platform refuses rather than letting a
    * caller discover the conflict at apply time.
+   *
+   * This is the courteous check, not the guarantee: it names the offending
+   * request and links to it, but being read-then-write it can be raced. The
+   * driver's branch creation is the actual lock (ChangeInFlightError), so a
+   * request that slips past here is still refused — just less helpfully.
    */
   async function refuseIfInFlight(driver: ChangeDriver, bucketId: string): Promise<void> {
-    const open = await driver.listOpen();
-    const existing = open.find((r) => r.bucketId === bucketId);
+    const existing = await driver.findOpenFor(bucketId);
     if (existing) {
       throw conflict(
-        `A ${existing.intent} request (${existing.requestId}) is already open against ${bucketId}: ${existing.review.url}. Merge or close it first.`,
+        `A ${existing.intent} request (${existing.requestId}) is already open against ${bucketId}: ${existing.url}. Merge or close it first.`,
         '/problems/request-in-flight',
       );
     }
@@ -91,8 +95,9 @@ export function writeRouter(): Router {
     } catch (e) {
       // The driver's collision guard is the authority on "already exists"; it
       // reads the base branch, which the local working tree may lag behind.
+      // (ChangeInFlightError and GitHubError are translated by problemHandler.)
       const message = (e as Error).message;
-      if (/already exists/.test(message)) throw conflict(message, '/problems/bucket-exists');
+      if (/stack .* already exists/.test(message)) throw conflict(message, '/problems/bucket-exists');
       throw e;
     }
 

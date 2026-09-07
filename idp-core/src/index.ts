@@ -7,7 +7,7 @@ export { validate, validateSettings, type BucketRequest, type FieldError } from 
 export { generateRequestId, type RequestIdOptions } from './requestId';
 export { generate, settingsOf, type GenerateContext, type GeneratedStack } from './generator';
 export { listBuckets, defaultStacksDir, type BucketRecord } from './inventory';
-export { makeGh, type GhContext } from './github';
+export { makeGh, GitHubError, type GhContext, type GhOptions } from './github';
 export { deliveryMetrics, type DeliveryMetrics, type GhReadParams, type RecentRequest } from './metrics';
 export { compliance, type Compliance, type DriftItem } from './compliance';
 export { GUARDRAILS, DEFAULT_SETTINGS, RESERVED_LABELS, type Guardrails, type BucketSettings } from './guardrails';
@@ -16,10 +16,12 @@ export {
   planUpdate,
   planDelete,
   mergeSettings,
+  ChangeInFlightError,
   type ChangeDriver,
   type ChangeRequest,
   type ChangeFile,
   type ChangeTarget,
+  type OpenChange,
   type CreateInput,
   type UpdateInput,
   type DeleteInput,
