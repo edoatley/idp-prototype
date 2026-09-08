@@ -66,8 +66,9 @@ docs/portal-to-terraform.md  # reference: how a portal request becomes Terraform
 - **Phase 6 — Guided walkthrough & showcase** ✅ **done**. A step-by-step walkthrough of the
   whole build in [`docs/walkthrough/`](./docs/walkthrough/README.md): pages 1–7 captured in #43,
   page 8 (API + CLI) captured 2026-09-08 from a real create/update/decommission run
-  (#60/#61/#62). Three browser-only screenshots on page 8 are still placeholders —
-  `08-openapi-contract`, `08-update-plan`, `08-parity`; every command and its output is real.
+  (#60/#61/#62) — every command and its output is real. One optional screenshot is outstanding
+  there (the dashboard beside `idp status`); it is marked in the page and renders as a note, not
+  a broken image.
 - **Phase 7 — API + CLI** ✅ **done**. `contracts/openapi.yaml` (contract-first, enforced at
   runtime by `express-openapi-validator` in both directions), `/v1` JSON routes mounted on the
   portal app, and `idp-cli`. All three surfaces submit through one change layer
@@ -202,7 +203,8 @@ npm run typecheck && npm test
 
 # Run the platform (HTML UI + /v1 API on one port) and drive it from the CLI
 GITHUB_REPO=edoatley/idp-prototype npm run dev -w idp-portal
-IDP_TOKEN="$GITHUB_TOKEN" ./idp-cli/bin/idp.js bucket list
+export PATH="$PWD/node_modules/.bin:$PATH"   # npm ci links `idp` there; not on PATH by default
+IDP_TOKEN="$GITHUB_TOKEN" idp bucket list
 
 # All credential-free checks at once — mirrors terraform-checks CI
 ./scripts/checks.sh            # needs terraform, tflint, trivy, conftest

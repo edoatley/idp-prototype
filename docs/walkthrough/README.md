@@ -44,9 +44,16 @@ disposable. See [PRD.md](../../PRD.md), [CLAUDE.md](../../CLAUDE.md), and the le
 - **Tools:** `node` ≥ 20, `terraform`, `gcloud` (with Application Default Credentials:
   `gcloud auth application-default login`), `gh`; and for local checks `tflint`, `trivy`,
   `conftest`.
-- **Portal env:** a `.env` at repo root (gitignored) with a fine-grained `GITHUB_TOKEN`
-  (Contents + Pull requests: read/write on `edoatley/idp-prototype`). Set
-  `GITHUB_REPO=edoatley/idp-prototype` when running the portal.
+- **Portal env:** a `.env` at the repo root (gitignored) holding a fine-grained GitHub token with
+  *Contents* and *Pull requests: read/write* on `edoatley/idp-prototype`. Every step below starts
+  with `source .env`:
+
+  ```bash
+  export IDP_PROTO_PORTAL_GHTOKEN=github_pat_...   # the token itself
+  export IDP_TOKEN=${IDP_PROTO_PORTAL_GHTOKEN}     # what the CLI reads (step 8)
+  ```
+
+  Set `GITHUB_REPO=edoatley/idp-prototype` when running the portal.
 - **Repo state:** one bucket is live (`edo-dev-platform-refactor-check`). Steps needing a fresh
   artifact offer both **"re-run to capture"** (provision one via the portal in step 3, or from
   the CLI in step 8) and a **reference permalink** to the original PR/run. Page 8's output comes

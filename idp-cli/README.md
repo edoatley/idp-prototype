@@ -9,9 +9,21 @@ change the client has not followed fails a typecheck rather than someone's pipel
 
 ## Use
 
+`npm ci` at the repo root links the CLI into `node_modules/.bin`, so putting that on your PATH
+is all the setup there is:
+
+```bash
+export PATH="$PWD/node_modules/.bin:$PATH"      # from the repo root
+idp --version                                   # 0.1.0
+```
+
+Without it you get `command not found: idp`. Alternatives: run `./idp-cli/bin/idp.js` directly,
+or `npm link -w idp-cli` for an `idp` that outlives the shell.
+
 ```bash
 export IDP_API_URL=http://localhost:3000        # default
 export IDP_TOKEN=github_pat_...                 # falls back to $GITHUB_TOKEN
+                                                # (in this repo: `source .env` first)
 
 idp bucket list
 idp bucket list --team checkout -o json

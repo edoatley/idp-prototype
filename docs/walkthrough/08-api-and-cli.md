@@ -62,20 +62,34 @@ CI fails on any diff between them.
 > back as a **500** — because `403` was not in the contract, and the validator refuses to emit an
 > undocumented status. The contract was wrong, not the code.
 
-![The OpenAPI contract](images/08-openapi-contract.png)
-
 ---
 
 ## Do this — start the platform and look around
 
-```bash
-export GITHUB_REPO=edoatley/idp-prototype
-export GITHUB_TOKEN=$IDP_PROTO_PORTAL_GHTOKEN   # the key in .env
-npm run dev -w idp-portal                        # HTML UI *and* /v1 on :3000
+Both terminals start from the **repo root** with `source .env`, which carries the GitHub token
+(see the [prerequisites](README.md)). Serve the platform in one:
 
-export IDP_API_URL=http://localhost:3000
-export IDP_TOKEN="$GITHUB_TOKEN"
+```bash
+source .env
+export GITHUB_REPO=edoatley/idp-prototype
+export GITHUB_TOKEN="$IDP_PROTO_PORTAL_GHTOKEN"
+npm run dev -w idp-portal        # HTML UI *and* /v1 on :3000
 ```
+
+Drive it from the other:
+
+```bash
+source .env                                # sets IDP_TOKEN
+export PATH="$PWD/node_modules/.bin:$PATH" # `npm ci` linked `idp` here
+export IDP_API_URL=http://localhost:3000
+
+idp --version                              # 0.1.0
+```
+
+> Two things that bite if a step is skipped. Without the `PATH` line: `command not found: idp` —
+> or run `./idp-cli/bin/idp.js` directly, or `npm link -w idp-cli` for an `idp` that outlives the
+> shell. Without `source .env`: reads still work, because they need no credential, and only the
+> first *write* fails — the CLI says which variable to set.
 
 ```console
 $ idp bucket list
@@ -180,6 +194,17 @@ rule — different layers, one error shape.
 
 ## Do this — request it for real, and follow it
 
+> **Everything from here provisions real infrastructure, and each step acts on the bucket the
+> previous one made.** Run the three sections in order, substituting your own bucket name for
+> `edo-dev-checkout-orders`; or read them as the record of PRs #60/#61/#62, since
+> `idp bucket list`, `describe`, `status` and any `--dry-run` work against whatever already exists.
+>
+> **After merging the create, `git pull` before the next command.** The API reads its inventory
+> from the working tree, so until you pull, a bucket the platform just provisioned reads as
+> `Error: Not found` — the resource exists, the checkout is stale. This is a real defect, not a
+> quirk: [`docs/design/inventory-source.md`](../design/inventory-source.md) is the agreed fix, and
+> this instruction goes away with it.
+
 ```console
 $ idp bucket create --name orders --team checkout --env dev \
     --retention-days 30 --label cost-centre=cc-1234
@@ -268,6 +293,9 @@ cannot be undone.
 
 ## Do this — change a bucket in place
 
+*(Acts on the bucket from the previous step — substitute your own name for
+`edo-dev-checkout-orders`.)*
+
 Identity is immutable — the bucket name is derived from it, so "renaming" would destroy and
 recreate the bucket. The platform **refuses rather than silently ignoring**:
 
@@ -297,8 +325,6 @@ Plan: 0 to add, 1 to change, 0 to destroy.
 
 **`0 to destroy`** is the whole reason the module has mutable inputs at all: a bucket with data in
 it survives a settings change. The policy gate re-runs against the new settings.
-
-![The in-place update plan](images/08-update-plan.png)
 
 After merging, the inventory record shows attribution and provenance kept apart:
 
@@ -348,11 +374,13 @@ Open <http://localhost:3000/dashboard> beside it: same inventory, same 100%, sam
 implementation underneath — the oversight story does not fork per surface. (The 85% policy pass
 rate is the gate working: the failures are the deliberately non-compliant PRs from step 4.)
 
-![Dashboard and CLI agreeing](images/08-parity.png)
+> 📷 *Screenshot to capture: the dashboard and the `idp status` output side by side.*
 
 ---
 
 ## Do this — decommission it
+
+*(Still the same bucket — substitute your own name.)*
 
 ```console
 $ idp bucket delete edo-dev-checkout-orders --dry-run

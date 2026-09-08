@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Client, ApiError } from '../src/client';
 import { table, keyValue, render, pct, statusLabel } from '../src/output';
-import { buildProgram } from '../src/main';
+import { buildProgram, main } from '../src/main';
 
 // The CLI is a pure API client, so these tests stub fetch and assert on the two
 // things the CLI is actually responsible for: the requests it makes and what it
@@ -263,5 +263,42 @@ describe('request status --wait', () => {
     stubFetch([{ status: 200, body: { ...req('blocked'), message: 'policy gate denied' } }]);
     await run(['request', 'status', 'req-9', '--wait']);
     expect(process.exitCode).toBe(1);
+  });
+});
+
+// Reads need no credential, so an unconfigured shell only shows up at the first
+// write. At that point the server can say "a token was required" but not "yours
+// is unset" — only the client knows that, so only the client can say it.
+describe('an unauthenticated write explains itself', () => {
+  const unauthorized = {
+    status: 401,
+    body: { title: 'Unauthorized', status: 401, detail: 'Authorization header required' },
+  };
+  const create = ['bucket', 'create', '--name', 'orders', '--team', 'checkout', '--env', 'dev'];
+
+  beforeEach(() => {
+    delete process.env.IDP_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  it('tells the caller how to configure a token when none is set', async () => {
+    stubFetch([unauthorized]);
+    await main(['node', 'idp', '--api-url', API, ...create]);
+
+    const output = err.join('\n');
+    expect(output).toContain('Unauthorized');
+    expect(output).toContain('No token is configured');
+    expect(output).toContain('IDP_TOKEN');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('does not offer that advice when a token WAS supplied — then it is the token that is wrong', async () => {
+    process.env.IDP_TOKEN = 'ghp_expired';
+    stubFetch([unauthorized]);
+    await main(['node', 'idp', '--api-url', API, ...create]);
+
+    const output = err.join('\n');
+    expect(output).toContain('Unauthorized');
+    expect(output).not.toContain('No token is configured');
   });
 });
