@@ -54,11 +54,17 @@ export function writeRouter(): Router {
 
   /**
    * Who is making this change, according to their credential rather than their
-   * say-so. A dry run opens nothing, so it needs no identity and should not
-   * spend a call finding one.
+   * say-so.
+   *
+   * A dry run resolves this too, even though it opens nothing. Skipping the
+   * lookup would be cheaper, but the rendered files are the contract's promise
+   * of "exactly what a real call would have committed" — and a placeholder
+   * author is a difference between the preview and the thing itself, in the one
+   * feature whose entire purpose is that there is no difference. The lookup is
+   * memoised per token, so the cost is one call, once.
    */
-  const authorOf = async (req: Parameters<typeof requireToken>[0]): Promise<string> =>
-    String(req.query.dryRun) === 'true' ? 'dry-run' : viewerLogin(requireToken(req));
+  const authorOf = (req: Parameters<typeof requireToken>[0]): Promise<string> =>
+    viewerLogin(requireToken(req));
 
   /**
    * One writer at a time. Two open changes against the same stack would race on

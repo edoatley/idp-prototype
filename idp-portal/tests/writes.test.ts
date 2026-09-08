@@ -165,21 +165,22 @@ describe('POST /v1/buckets', () => {
 
 describe('dry run', () => {
   it('renders exactly what would be committed without opening anything', async () => {
-    stubGitHub([]); // any GitHub call would throw
+    stubGitHub([WHOAMI]); // identity resolves; nothing may be written
     const res = await request(await app())
       .post('/v1/buckets?dryRun=true')
       .set('authorization', TOKEN)
       .send({ ...validCreate, settings: { retentionDays: 30 } })
       .expect(200);
 
-    expect(calls).toHaveLength(0);
+    // Nothing was written — the only call is the read that names the author.
+    expect(calls.every((c) => c.method === 'GET')).toBe(true);
     expect(res.body.summary).toBe('create idp-gitops/stacks/dev/payments-invoices (2 files)');
     const mainTf = res.body.files.find((f: { path: string }) => f.path.endsWith('main.tf'));
     expect(mainTf.content).toContain('retention_days = 30');
   });
 
   it('shows a decommission as the removal of every stack file', async () => {
-    stubGitHub([]);
+    stubGitHub([WHOAMI]);
     const res = await request(await app())
       .delete('/v1/buckets/edo-dev-checkout-orders?dryRun=true')
       .set('authorization', TOKEN)
@@ -212,7 +213,7 @@ describe('PATCH /v1/buckets/{bucketId}', () => {
   });
 
   it('leaves settings the caller did not mention alone', async () => {
-    stubGitHub([]);
+    stubGitHub([WHOAMI]);
     const res = await request(await app())
       .patch('/v1/buckets/edo-dev-checkout-orders?dryRun=true')
       .set('authorization', TOKEN)
@@ -407,14 +408,20 @@ describe('changes are attributed to the authenticated caller', () => {
     expect(committedFile('metadata.yaml')).toContain('requester: tomas-novak');
   });
 
-  it('spends no identity call on a dry run, which opens nothing', async () => {
-    stubGitHub([]); // any call at all would throw
-    await request(await app())
+  it('previews the real author, so the dry run matches what would be committed', async () => {
+    // The dry run's whole promise is that there is no difference between the
+    // preview and the thing itself. A placeholder author would be a difference,
+    // in the one feature that exists to have none.
+    stubGitHub([{ method: 'GET', match: /api\.github\.com\/user$/, status: 200, body: { login: 'ada-okafor' } }]);
+    const res = await request(await app())
       .post('/v1/buckets?dryRun=true')
       .set('authorization', TOKEN)
       .send({ name: 'invoices', owningTeam: 'payments', environment: 'dev' })
       .expect(200);
-    expect(calls).toHaveLength(0);
+
+    const metadata = res.body.files.find((f: { path: string }) => f.path.endsWith('metadata.yaml')).content;
+    expect(metadata).toContain('requester: ada-okafor');
+    expect(metadata).not.toContain('dry-run');
   });
 
   it('reports a token GitHub will not identify as 401, not 500', async () => {
