@@ -62,44 +62,34 @@ CI fails on any diff between them.
 > back as a **500** — because `403` was not in the contract, and the validator refuses to emit an
 > undocumented status. The contract was wrong, not the code.
 
-![The OpenAPI contract](images/08-openapi-contract.png)
-
 ---
 
 ## Do this — start the platform and look around
 
-From the **repo root**, in one terminal:
+Both terminals start from the **repo root** with `source .env`, which carries the GitHub token
+(see the [prerequisites](README.md)). Serve the platform in one:
 
 ```bash
-source .env                                      # defines IDP_PROTO_PORTAL_GHTOKEN
+source .env
 export GITHUB_REPO=edoatley/idp-prototype
 export GITHUB_TOKEN="$IDP_PROTO_PORTAL_GHTOKEN"
-npm run dev -w idp-portal                        # HTML UI *and* /v1 on :3000
+npm run dev -w idp-portal        # HTML UI *and* /v1 on :3000
 ```
 
-In another, put the CLI on your PATH and point it at the running platform:
+Drive it from the other:
 
 ```bash
-source .env                                      # ← easy to skip; see the warning below
-
-# `npm ci` already linked the CLI into node_modules/.bin; this just makes
-# `idp` resolvable. Without it you get "zsh: command not found: idp".
-export PATH="$PWD/node_modules/.bin:$PATH"
-
+source .env                                # sets IDP_TOKEN
+export PATH="$PWD/node_modules/.bin:$PATH" # `npm ci` linked `idp` here
 export IDP_API_URL=http://localhost:3000
-export IDP_TOKEN="$IDP_PROTO_PORTAL_GHTOKEN"
 
-idp --version                                    # 0.1.0
-[ -n "$IDP_TOKEN" ] && echo "token set"          # ← if this is silent, re-run `source .env`
+idp --version                              # 0.1.0
 ```
 
-> **Skipping `source .env` fails late, not early.** `IDP_TOKEN` becomes an empty string, and
-> because reads need no credential, `idp bucket list` still works — the first *write* is where it
-> surfaces, as `Error: Unauthorized`. The CLI notices when no token is configured at all and says
-> so, but the check above catches it a step sooner.
-
-> Prefer not to touch PATH? Every `idp` below works as `./idp-cli/bin/idp.js` instead. For an
-> `idp` that outlives the shell, `npm link -w idp-cli` installs it globally.
+> Two things that bite if a step is skipped. Without the `PATH` line: `command not found: idp` —
+> or run `./idp-cli/bin/idp.js` directly, or `npm link -w idp-cli` for an `idp` that outlives the
+> shell. Without `source .env`: reads still work, because they need no credential, and only the
+> first *write* fails — the CLI says which variable to set.
 
 ```console
 $ idp bucket list
@@ -322,8 +312,6 @@ Plan: 0 to add, 1 to change, 0 to destroy.
 **`0 to destroy`** is the whole reason the module has mutable inputs at all: a bucket with data in
 it survives a settings change. The policy gate re-runs against the new settings.
 
-![The in-place update plan](images/08-update-plan.png)
-
 After merging, the inventory record shows attribution and provenance kept apart:
 
 ```yaml
@@ -372,7 +360,7 @@ Open <http://localhost:3000/dashboard> beside it: same inventory, same 100%, sam
 implementation underneath — the oversight story does not fork per surface. (The 85% policy pass
 rate is the gate working: the failures are the deliberately non-compliant PRs from step 4.)
 
-![Dashboard and CLI agreeing](images/08-parity.png)
+> 📷 *Screenshot to capture: the dashboard and the `idp status` output side by side.*
 
 ---
 
