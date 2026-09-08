@@ -63,10 +63,11 @@ docs/portal-to-terraform.md  # reference: how a portal request becomes Terraform
   aggregates inventory + ownership (`metadata.yaml`), delivery metrics (apply success rate + lead
   time from the GitHub API) and compliance/drift (policy pass-rate + open `Drift:` Issues) — on
   demand, no datastore, no GCP creds.
-- **Phase 6 — Guided walkthrough & showcase** ◀ **NEXT — start here**. A step-by-step
-  walkthrough of the whole build (commands + links + screenshots) to understand/showcase it end
-  to end. Scaffold lives in [`docs/walkthrough/`](./docs/walkthrough/README.md); the capture pass
-  = run each step and drop screenshots into `images/`. (Cold-start runbook below.)
+- **Phase 6 — Guided walkthrough & showcase** ✅ **done**. A step-by-step walkthrough of the
+  whole build in [`docs/walkthrough/`](./docs/walkthrough/README.md): pages 1–7 captured in #43,
+  page 8 (API + CLI) captured 2026-09-08 from a real create/update/decommission run
+  (#60/#61/#62). Three browser-only screenshots on page 8 are still placeholders —
+  `08-openapi-contract`, `08-update-plan`, `08-parity`; every command and its output is real.
 - **Phase 7 — API + CLI** ✅ **done**. `contracts/openapi.yaml` (contract-first, enforced at
   runtime by `express-openapi-validator` in both directions), `/v1` JSON routes mounted on the
   portal app, and `idp-cli`. All three surfaces submit through one change layer
@@ -100,11 +101,11 @@ these in workflows, do not hardcode:
 
 - `idp-gitops/modules/gcs-bucket/` — guardrailed module + `terraform test`/`mock_provider` suite.
 - `idp-gitops/stacks/<env>/<team>-<name>/` — per-request stacks; each `metadata.yaml` is the
-  inventory record. **This is the read source for the Phase 5 dashboard.** No stacks are
-  provisioned right now — `platform-demo` was decommissioned in #41 and `payments-discounts`
-  in #42 — so `stacks/` is empty and the dashboard's inventory panel reads as such. Provision
-  one via the portal to exercise the pipelines (an empty `stacks/` makes every matrix job in
-  `pr`/`apply`/`destroy`/`drift` skip).
+  inventory record. **This is the read source for the Phase 5 dashboard.** One stack is live:
+  `dev/platform-refactor-check`. `checkout-orders` was provisioned, updated and decommissioned in
+  #60/#61/#62 during the Phase 7 capture, so the repo also carries a worked example of the full
+  lifecycle in its history. An empty `stacks/` makes every matrix job in
+  `pr`/`apply`/`destroy`/`drift` skip.
 - `idp-gitops/policy/` — Rego/Conftest gate + unit tests (`conftest verify`).
 - `idp-core/` — the domain every surface shares: `config.ts`, `validate.ts`, `requestId.ts`,
   `generator.ts` (pure; computes HCL alignment so generated stacks are `fmt`-clean),
