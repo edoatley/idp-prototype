@@ -71,14 +71,17 @@ CI fails on any diff between them.
 From the **repo root**, in one terminal:
 
 ```bash
+source .env                                      # defines IDP_PROTO_PORTAL_GHTOKEN
 export GITHUB_REPO=edoatley/idp-prototype
-export GITHUB_TOKEN=$IDP_PROTO_PORTAL_GHTOKEN   # the key in .env
+export GITHUB_TOKEN="$IDP_PROTO_PORTAL_GHTOKEN"
 npm run dev -w idp-portal                        # HTML UI *and* /v1 on :3000
 ```
 
 In another, put the CLI on your PATH and point it at the running platform:
 
 ```bash
+source .env                                      # ← easy to skip; see the warning below
+
 # `npm ci` already linked the CLI into node_modules/.bin; this just makes
 # `idp` resolvable. Without it you get "zsh: command not found: idp".
 export PATH="$PWD/node_modules/.bin:$PATH"
@@ -86,8 +89,14 @@ export PATH="$PWD/node_modules/.bin:$PATH"
 export IDP_API_URL=http://localhost:3000
 export IDP_TOKEN="$IDP_PROTO_PORTAL_GHTOKEN"
 
-idp --version    # 0.1.0 — you are set up
+idp --version                                    # 0.1.0
+[ -n "$IDP_TOKEN" ] && echo "token set"          # ← if this is silent, re-run `source .env`
 ```
+
+> **Skipping `source .env` fails late, not early.** `IDP_TOKEN` becomes an empty string, and
+> because reads need no credential, `idp bucket list` still works — the first *write* is where it
+> surfaces, as `Error: Unauthorized`. The CLI notices when no token is configured at all and says
+> so, but the check above catches it a step sooner.
 
 > Prefer not to touch PATH? Every `idp` below works as `./idp-cli/bin/idp.js` instead. For an
 > `idp` that outlives the shell, `npm link -w idp-cli` installs it globally.

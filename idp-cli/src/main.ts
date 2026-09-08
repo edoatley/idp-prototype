@@ -357,6 +357,11 @@ async function waitAndExit(client: Client, requestId: string, g: GlobalOpts): Pr
   if (UNSUCCESSFUL.includes(final.status)) process.exitCode = 1;
 }
 
+/** Whether the caller supplied a credential by any of the routes we accept. */
+function tokenWasConfigured(argv: string[]): boolean {
+  return Boolean(process.env.IDP_TOKEN || process.env.GITHUB_TOKEN || argv.includes('--token'));
+}
+
 export async function main(argv: string[] = process.argv): Promise<void> {
   try {
     await buildProgram().parseAsync(argv);
@@ -367,6 +372,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       console.error(`Error: ${e.problem.title}`);
       if (e.problem.detail) console.error(`  ${e.problem.detail}`);
       for (const f of e.problem.errors ?? []) console.error(`  ${f.field}: ${f.message}`);
+
+      // The server can only report that a credential was missing; it cannot know
+      // that the reason is an unset variable on this machine. Reads need no token,
+      // so the first write is where an unconfigured shell shows up — and "set
+      // IDP_TOKEN" is more use there than restating the HTTP status.
+      if (e.problem.status === 401 && !tokenWasConfigured(argv)) {
+        console.error('');
+        console.error('  No token is configured. Set one of:');
+        console.error('    export IDP_TOKEN=<a GitHub token>   # or GITHUB_TOKEN, or pass --token');
+        console.error('  Reads work without one; anything that opens a change does not.');
+      }
     } else {
       console.error(`Error: ${(e as Error).message}`);
     }

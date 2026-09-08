@@ -23,6 +23,7 @@ or `npm link -w idp-cli` for an `idp` that outlives the shell.
 ```bash
 export IDP_API_URL=http://localhost:3000        # default
 export IDP_TOKEN=github_pat_...                 # falls back to $GITHUB_TOKEN
+                                                # (in this repo: `source .env` first)
 
 idp bucket list
 idp bucket list --team checkout -o json
