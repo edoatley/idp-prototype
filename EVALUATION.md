@@ -147,9 +147,49 @@ For each phase, note: what worked, friction/surprises, time spent, and — most 
     poll — fine at this scale, and the honest trade to record.
   - **What is missing (the hardening backlog):** request lookup scans recent PRs rather than
     using the search API, so a very old request eventually falls off; there is no idempotency
-    key, so a retried create relies on the stack-collision guard; the single-writer check is
-    read-then-write and could race under genuine concurrency; and the API reads inventory from a
-    local checkout, so deploying it away from the repo needs a GitHub-backed inventory source.
+    key, so a retried create relies on the stack-collision guard; `--wait` has no `--timeout`, so
+    a pipeline relies on its own job limit; `requester` on create is still self-declared when
+    supplied (making it non-forgeable needs a second `submitted_by` field); and the API reads
+    inventory from a local checkout, so deploying it away from the repo needs a GitHub-backed
+    inventory source.
+
+- **Phase 7 hardening — what reviewing the merged result found.** Four defects, none caught by
+  the test suite, because **every test stubbed GitHub with a *successful* response**. The failure
+  paths had no coverage at all, so the code that handled them was never exercised and was wrong.
+  - **A rejected credential was reported as a platform bug** (the serious one). The GitHub client
+    returned `{status, data}` but only the stack-collision guard ever read `status`, so an error
+    body was consumed as a payload: `{"message":"Bad credentials"}` became
+    `prs.data.filter is not a function`, and a user with an expired token got a **500 Internal
+    error**. The lesson generalises past this codebase: a client that *returns* a status rather
+    than *raising* on it relies on every caller remembering, and callers do not. Now 401 stays
+    401 and says what to fix.
+  - **Dead attribution.** `PATCH`/`DELETE` read an `x-idp-requester` header that existed in
+    neither the contract nor the CLI, so every update was recorded against whoever *created* the
+    bucket. Fixed by deriving identity from the caller's token — which is the only honest option
+    when the platform's whole auth story is "we act as you".
+  - **Two sources of truth for `org_prefix`.** `config.yaml` declared it; three modules hardcoded
+    it. This one fails *silently* — change the config and the platform provisions one bucket and
+    talks about another, with no error anywhere. The most dangerous class of bug in a system whose
+    value proposition is that the inventory is trustworthy.
+  - **A preview that differed from the thing.** `--dry-run` rendered `requester: dry-run` where a
+    real create records the caller. Found only by running the CLI for real during the walkthrough
+    capture — no test would have noticed, because the placeholder was internally consistent.
+  - **The contract caught its own gap.** Making 403 work produced a 500: the response validator
+    refuses to emit a status the contract does not document. The spec was incomplete, and the
+    runtime check said so — which is the argument for validating responses, not just requests.
+
+- **Phase 7 capture — the golden path, end to end from a terminal.** PRs #60/#61/#62 provisioned,
+  changed and destroyed a real bucket with no browser and no hand-written Terraform.
+  - **The update is genuinely in-place.** `Plan: 0 to add, 1 to change, 0 to destroy` — the claim
+    the mutable inputs exist to support, confirmed against real Terraform for the first time. A
+    bucket with data in it survives a settings change.
+  - **The retention guardrail is confirmed by the cloud, not just by us.** GCS reports the Delete
+    rule as `isLive: false`: the module asserts it, an independent Rego rule re-checks it, and the
+    provider agrees. Three layers, and the outermost one is not ours.
+  - **Statelessness paid off under observation.** A merge was missed mid-capture and `--wait` sat
+    on `pending_review` for ten minutes rather than inventing progress — because it polls the repo
+    instead of tracking optimistic local state. A request tracker with its own database would have
+    had to be *right* about that; this one cannot be wrong.
 
 ### Security-scanning backlog (accepted trivy exceptions)
 
