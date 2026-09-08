@@ -68,14 +68,29 @@ CI fails on any diff between them.
 
 ## Do this — start the platform and look around
 
+From the **repo root**, in one terminal:
+
 ```bash
 export GITHUB_REPO=edoatley/idp-prototype
 export GITHUB_TOKEN=$IDP_PROTO_PORTAL_GHTOKEN   # the key in .env
 npm run dev -w idp-portal                        # HTML UI *and* /v1 on :3000
+```
+
+In another, put the CLI on your PATH and point it at the running platform:
+
+```bash
+# `npm ci` already linked the CLI into node_modules/.bin; this just makes
+# `idp` resolvable. Without it you get "zsh: command not found: idp".
+export PATH="$PWD/node_modules/.bin:$PATH"
 
 export IDP_API_URL=http://localhost:3000
-export IDP_TOKEN="$GITHUB_TOKEN"
+export IDP_TOKEN="$IDP_PROTO_PORTAL_GHTOKEN"
+
+idp --version    # 0.1.0 — you are set up
 ```
+
+> Prefer not to touch PATH? Every `idp` below works as `./idp-cli/bin/idp.js` instead. For an
+> `idp` that outlives the shell, `npm link -w idp-cli` installs it globally.
 
 ```console
 $ idp bucket list

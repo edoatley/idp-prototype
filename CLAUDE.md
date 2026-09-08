@@ -202,7 +202,8 @@ npm run typecheck && npm test
 
 # Run the platform (HTML UI + /v1 API on one port) and drive it from the CLI
 GITHUB_REPO=edoatley/idp-prototype npm run dev -w idp-portal
-IDP_TOKEN="$GITHUB_TOKEN" ./idp-cli/bin/idp.js bucket list
+export PATH="$PWD/node_modules/.bin:$PATH"   # npm ci links `idp` there; not on PATH by default
+IDP_TOKEN="$GITHUB_TOKEN" idp bucket list
 
 # All credential-free checks at once — mirrors terraform-checks CI
 ./scripts/checks.sh            # needs terraform, tflint, trivy, conftest
