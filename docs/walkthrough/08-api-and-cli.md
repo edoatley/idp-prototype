@@ -201,8 +201,9 @@ rule — different layers, one error shape.
 >
 > **After merging the create, `git pull` before the next command.** The API reads its inventory
 > from the working tree, so until you pull, a bucket the platform just provisioned reads as
-> `Error: Not found` — the resource exists, the checkout is stale. See
-> [the backlog](../../EVALUATION.md) for why this is a real defect rather than a quirk.
+> `Error: Not found` — the resource exists, the checkout is stale. This is a real defect, not a
+> quirk: [`docs/design/inventory-source.md`](../design/inventory-source.md) is the agreed fix, and
+> this instruction goes away with it.
 
 ```console
 $ idp bucket create --name orders --team checkout --env dev \

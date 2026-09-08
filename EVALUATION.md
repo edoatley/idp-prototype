@@ -151,7 +151,8 @@ For each phase, note: what worked, friction/surprises, time spent, and — most 
     a pipeline relies on its own job limit; **the API reads inventory from the working tree, so a
     bucket it has just provisioned reads as `Error: Not found` until you `git pull`** — the
     platform contradicting itself immediately after its own happy path, and the most serious of
-    these (a persistent store or reading the base branch directly is the fix, parked for now); `requester` on create is still self-declared when
+    these (agreed fix: read the base branch
+    directly, no datastore — see [`docs/design/inventory-source.md`](docs/design/inventory-source.md)); `requester` on create is still self-declared when
     supplied (making it non-forgeable needs a second `submitted_by` field); and the API reads
     inventory from a local checkout, so deploying it away from the repo needs a GitHub-backed
     inventory source.
