@@ -194,6 +194,19 @@ rule — different layers, one error shape.
 
 ## Do this — request it for real, and follow it
 
+> **Everything from here provisions real infrastructure, and each step acts on the bucket the
+> next one changes.** Two ways through:
+>
+> - **Run it.** Do this section and the two after it in order. `edo-dev-checkout-orders` below is
+>   the name from the capture run — substitute whatever yours is called.
+> - **Read it.** The output below is a real record of PRs #60/#61/#62; nothing here needs running
+>   to be understood. `idp bucket list`, `describe`, `status` and any `--dry-run` all work against
+>   the live `edo-dev-platform-refactor-check` if you want to keep poking at something.
+>
+> The one thing that will not work is running the *later* sections without the create: they act on
+> a bucket that no longer exists, because the final step destroys it. That is the lifecycle being
+> honest, not a broken page.
+
 ```console
 $ idp bucket create --name orders --team checkout --env dev \
     --retention-days 30 --label cost-centre=cc-1234
@@ -282,6 +295,9 @@ cannot be undone.
 
 ## Do this — change a bucket in place
 
+*(Acts on the bucket from the previous step — substitute your own name for
+`edo-dev-checkout-orders`.)*
+
 Identity is immutable — the bucket name is derived from it, so "renaming" would destroy and
 recreate the bucket. The platform **refuses rather than silently ignoring**:
 
@@ -365,6 +381,8 @@ rate is the gate working: the failures are the deliberately non-compliant PRs fr
 ---
 
 ## Do this — decommission it
+
+*(Still the same bucket — substitute your own name.)*
 
 ```console
 $ idp bucket delete edo-dev-checkout-orders --dry-run
