@@ -148,7 +148,10 @@ For each phase, note: what worked, friction/surprises, time spent, and — most 
   - **What is missing (the hardening backlog):** request lookup scans recent PRs rather than
     using the search API, so a very old request eventually falls off; there is no idempotency
     key, so a retried create relies on the stack-collision guard; `--wait` has no `--timeout`, so
-    a pipeline relies on its own job limit; `requester` on create is still self-declared when
+    a pipeline relies on its own job limit; **the API reads inventory from the working tree, so a
+    bucket it has just provisioned reads as `Error: Not found` until you `git pull`** — the
+    platform contradicting itself immediately after its own happy path, and the most serious of
+    these (a persistent store or reading the base branch directly is the fix, parked for now); `requester` on create is still self-declared when
     supplied (making it non-forgeable needs a second `submitted_by` field); and the API reads
     inventory from a local checkout, so deploying it away from the repo needs a GitHub-backed
     inventory source.

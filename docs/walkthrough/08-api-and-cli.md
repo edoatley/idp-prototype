@@ -195,17 +195,14 @@ rule — different layers, one error shape.
 ## Do this — request it for real, and follow it
 
 > **Everything from here provisions real infrastructure, and each step acts on the bucket the
-> next one changes.** Two ways through:
+> previous one made.** Run the three sections in order, substituting your own bucket name for
+> `edo-dev-checkout-orders`; or read them as the record of PRs #60/#61/#62, since
+> `idp bucket list`, `describe`, `status` and any `--dry-run` work against whatever already exists.
 >
-> - **Run it.** Do this section and the two after it in order. `edo-dev-checkout-orders` below is
->   the name from the capture run — substitute whatever yours is called.
-> - **Read it.** The output below is a real record of PRs #60/#61/#62; nothing here needs running
->   to be understood. `idp bucket list`, `describe`, `status` and any `--dry-run` all work against
->   the live `edo-dev-platform-refactor-check` if you want to keep poking at something.
->
-> The one thing that will not work is running the *later* sections without the create: they act on
-> a bucket that no longer exists, because the final step destroys it. That is the lifecycle being
-> honest, not a broken page.
+> **After merging the create, `git pull` before the next command.** The API reads its inventory
+> from the working tree, so until you pull, a bucket the platform just provisioned reads as
+> `Error: Not found` — the resource exists, the checkout is stale. See
+> [the backlog](../../EVALUATION.md) for why this is a real defect rather than a quirk.
 
 ```console
 $ idp bucket create --name orders --team checkout --env dev \
