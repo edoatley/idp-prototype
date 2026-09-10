@@ -189,8 +189,11 @@ and showcase-ready from the repo alone.
 
 - **GitOps, PR-based**: `plan` on PR, `apply` on merge. Every request is an auditable PR.
 - **Meaningful PRs**: one coherent change per PR; keep them reviewable.
-- Commit only when asked; branch off `main`. End commit messages with the
-  `Co-Authored-By: Claude Opus 4.8` trailer and PR bodies with the Claude Code footer.
+- Commit only when asked; branch off `main`. End commit messages with a
+  `Co-Authored-By:` trailer **naming the model that actually wrote them** (currently
+  `Claude Opus 5 <noreply@anthropic.com>`), and PR bodies with the Claude Code footer. Pinning one
+  version here goes stale the moment the model changes, and copying a stale name forward records
+  an authorship that is simply untrue.
 - Never commit secrets or Terraform state; `*.tfvars` and `*.tfstate` are gitignored.
   WIF is keyless, so bootstrap outputs are published as **GitHub repository variables**, not secrets.
 

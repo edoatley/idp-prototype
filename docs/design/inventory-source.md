@@ -1,6 +1,11 @@
 # Make the inventory read the repo, not a copy of it
 
-**Status:** implemented · **Decided:** 2026-09-08 · **Shipped:** 2026-09-09
+**Status:** ✅ complete — implemented, reviewed and proven end to end on real infrastructure ·
+**Decided:** 2026-09-08 · **Built:** 2026-09-09 · **Proven:** 2026-09-10 (PRs
+[#69](https://github.com/edoatley/idp-prototype/pull/69) /
+[#70](https://github.com/edoatley/idp-prototype/pull/70) /
+[#71](https://github.com/edoatley/idp-prototype/pull/71), via
+[#68](https://github.com/edoatley/idp-prototype/pull/68))
 
 ## The problem
 
@@ -52,11 +57,17 @@ export interface InventorySource {
 
 - **`GitHubInventory`** — the default. One tree call, then a blob fetch per `metadata.yaml` whose
   SHA is not already cached.
-- **`FileInventory`** — today's logic, unchanged, for offline work and tests.
+- **`FileInventory`** — the original disk walk, unchanged, for offline work and tests.
 
 Selected by `IDP_INVENTORY=file|github`, defaulting to `github`.
 
-Three properties this must preserve, each of which is a way the original bug could return:
+Every property below is a way the original bug returns. The first three were designed in; the
+second three were found by a cold read of the finished code, and are the same shape — which is the
+most useful thing this work turned up. **Degrade-to-empty is the default behaviour of almost every
+reasonable-looking line** (`?? []`, a bare `.filter`, an untouched accumulator), so it has to be
+hunted for rather than avoided by intent.
+
+Designed in:
 
 1. **No silent fallback.** If GitHub is unreachable the read fails (502). Quietly serving a stale
    disk copy is the original bug in disguise.
@@ -69,14 +80,33 @@ Three properties this must preserve, each of which is a way the original bug cou
 3. **Truncation must raise.** The trees API sets `truncated: true` on very large trees. A
    truncated response yields a *partial inventory that looks complete* — the same failure mode.
 
-## Files to change
+Found by review, and closed:
+
+4. **A 200 that is not a tree must raise.** `truncated` being absent is not `truncated: false`.
+   An empty body, a proxy interstitial or a change in the API's shape filtered down to zero stacks
+   and was served as "the platform contains nothing" — the original defect, verbatim.
+5. **An unparseable `metadata.yaml` must raise, naming the file.** Skipping the record is a partial
+   inventory; letting the YAML error escape was an *undocumented* 500 blaming the platform for a
+   bad record. One bad file on `main` now stops every read, loudly.
+6. **`/dashboard` must not render an empty table under its own error banner.** It did, at **200** —
+   so a monitor watching status codes saw a healthy page describing a platform that contained
+   nothing. The inventory panel now distinguishes "could not ask" from "there are none", and the
+   route answers 502.
+
+One further property has a test purely because it is invisible: **the memoisation is per-request**.
+Make the source a module-level singleton and every other test still passes while the inventory
+becomes a permanent, TTL-free cache — the original bug in its worst form. That test fails against a
+singleton, which was checked by writing one.
+
+## What changed
 
 - `idp-core/src/inventory.ts` → `inventory/` — `source.ts` (the port + `InventoryUnavailableError`),
   `record.ts` (`toRecord`, shared by both sources so they cannot describe a stack differently),
   `file.ts`, `github.ts`; exported from `idp-core/src/index.ts`.
-- `idp-portal/src/inventory.ts` — where environment becomes a configured source, and a
-  per-request middleware in `server.ts` puts one on `res.locals`. `idp-core` still reads no GitHub
-  config from the environment.
+- `idp-portal/src/inventory.ts` — where environment becomes a configured source. `inventoryOf(res)`
+  builds one on first use and remembers it on `res.locals`, so the instance (and therefore the
+  memoised read) lives exactly as long as the request, and a route that never reads the inventory
+  never pays for one. `idp-core` still reads no GitHub config from the environment.
 - `idp-portal/src/api/router.ts` (both bucket handlers) — become async, wrapped in the existing
   `asyncRoute` from `api/problem.ts` so rejections reach `problemHandler`, which already
   translates `GitHubError` → 401/403/502.
@@ -121,6 +151,35 @@ behind", and the condition under which the original defect fired:
 
 That second row is the walkthrough failure, reproduced and fixed: the resource exists, and the
 platform now says so regardless of the checkout.
+
+### The proof: the whole lifecycle, on real infrastructure, without ever pulling
+
+Run 2026-09-10 against the live platform, driven entirely from `idp-cli`. **`git pull` was never
+run.** The checkout sat on `feat/inventory-source` throughout, containing neither the stack nor any
+of its later changes — the exact condition under which the original defect fired.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | `idp bucket create --name orders --team checkout --env dev --retention-days 30 --label cost-centre=cc-1234` | [#69](https://github.com/edoatley/idp-prototype/pull/69); plan + policy gate pass; merged; `apply.yml` ✅ |
+| 2 | `idp bucket list` — **before pulling** | shows `edo-dev-checkout-orders`, `30d`. The record was on `main`; the checkout was not. |
+| 3 | **`idp bucket update edo-dev-checkout-orders --retention-days 60`** | **exit 0** → [#70](https://github.com/edoatley/idp-prototype/pull/70) |
+| 4 | plan on #70 | `Plan: 0 to add, 1 to change, 0 to destroy` — a genuine in-place update |
+| 5 | after merge + apply, `gcloud` | `{'daysSinceNoncurrentTime': 60, 'isLive': False}` |
+| 6 | `idp bucket delete edo-dev-checkout-orders` | [#71](https://github.com/edoatley/idp-prototype/pull/71); merged; `destroy.yml` ✅; bucket 404s in GCP |
+
+**Step 3 is the whole point.** That is the command which produced
+`Error: Not found. No bucket edo-dev-checkout-orders` and started this work. It now succeeds from a
+checkout that still does not contain the stack.
+
+`gcloud` — the independent check, and the only one that caught the original misdiagnosis — confirmed
+the guardrails throughout: retention on *noncurrent* versions only (`isLive: false`), all four
+mandatory labels plus `cost-centre`, uniform bucket-level access on, public-access prevention
+enforced.
+
+One symmetry worth recording. After the decommission merged, `idp bucket describe` answered
+`Error: Not found` — **the same message as the original bug**. It is now the truth rather than a lie
+told by a stale checkout, and it appeared the instant the PR merged, with no pull. The message was
+never the problem; being unable to tell "gone" from "not pulled yet" was.
 
 The failure modes, also checked live:
 
