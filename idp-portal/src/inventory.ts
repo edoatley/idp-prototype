@@ -1,5 +1,5 @@
 import type { Response } from 'express';
-import { FileInventory, InventoryUnavailableError, loadConfig, type InventorySource } from 'idp-core';
+import { FileInventory, GitHubInventory, InventoryUnavailableError, loadConfig, type InventorySource } from 'idp-core';
 
 // Which inventory the platform answers from, and how a request gets hold of it.
 //
@@ -9,13 +9,9 @@ import { FileInventory, InventoryUnavailableError, loadConfig, type InventorySou
 
 export type InventoryKind = 'file' | 'github';
 
-/**
- * `github` by default: the repo is the inventory, so the answer comes from the
- * repo. `IDP_INVENTORY=file` is the deliberate opt-out for offline work and the
- * test suites — and, if the GitHub read ever misbehaves, the way back.
- */
+/** `file` while the GitHub source is still opt-in; the default flips separately. */
 export function inventoryKind(): InventoryKind {
-  return process.env.IDP_INVENTORY === 'file' ? 'file' : 'github';
+  return process.env.IDP_INVENTORY === 'github' ? 'github' : 'file';
 }
 
 /**
@@ -46,7 +42,7 @@ export function makeInventorySource(): InventorySource {
       'inventory source is "github" but GITHUB_TOKEN is not set. Set it, or IDP_INVENTORY=file for offline work.',
     );
   }
-  return misconfigured('the GitHub inventory source is not available yet.');
+  return new GitHubInventory({ token, owner, repo, orgPrefix });
 }
 
 /**

@@ -10,11 +10,14 @@ export {
   listBuckets,
   defaultStacksDir,
   FileInventory,
+  GitHubInventory,
+  clearInventoryCache,
   InventoryUnavailableError,
   STACKS_PREFIX,
   type BucketRecord,
   type InventorySource,
   type FileInventoryOptions,
+  type GitHubInventoryOptions,
 } from './inventory';
 export { bucketNameFor, bucketNameFromDir, type Naming } from './naming';
 export { makeGh, GitHubError, type GhContext, type GhOptions } from './github';
