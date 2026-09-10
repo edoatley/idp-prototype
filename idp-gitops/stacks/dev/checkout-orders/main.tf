@@ -30,7 +30,7 @@ module "bucket" {
   owning_team    = "checkout"
   environment    = "dev"
   request_id     = "req-20260910-checkout-orders-ayd8"
-  retention_days = 30
+  retention_days = 60
   extra_labels = {
     "cost-centre" = "cc-1234"
   }
