@@ -9,9 +9,13 @@ import { FileInventory, GitHubInventory, InventoryUnavailableError, loadConfig, 
 
 export type InventoryKind = 'file' | 'github';
 
-/** `file` while the GitHub source is still opt-in; the default flips separately. */
+/**
+ * `github` by default: the repo is the inventory, so the answer comes from the
+ * repo. `IDP_INVENTORY=file` is the deliberate opt-out for offline work and the
+ * test suites — and, if the GitHub read ever misbehaves, the way back.
+ */
 export function inventoryKind(): InventoryKind {
-  return process.env.IDP_INVENTORY === 'github' ? 'github' : 'file';
+  return process.env.IDP_INVENTORY === 'file' ? 'file' : 'github';
 }
 
 /**

@@ -76,6 +76,11 @@ docs/portal-to-terraform.md  # reference: how a portal request becomes Terraform
   The `gcs-bucket` module gained its first mutable inputs (`retention_days`, `storage_class`,
   `extra_labels`) so `PATCH` produces a real in-place plan. `idp-gitops` workflows and the policy
   gate were untouched — the extensibility claim, tested.
+- **Phase 7 follow-up — the inventory reads the repo** ✅ **done** (2026-09-09). Walking the CLI
+  page found the platform denying a bucket it had just provisioned, because reads came from the
+  working tree. Reads now go to the default branch live, behind an `InventorySource` port
+  (`idp-core/src/inventory/`), with no datastore added — see
+  [`docs/design/inventory-source.md`](./docs/design/inventory-source.md).
 - **Backstage** — *deferred / optional* (was the old Phase 6). Re-implement the golden path on
   Backstage against the unchanged `idp-gitops` backend and score it vs the thin portal
   (`EVALUATION.md` Part 2). Not currently scheduled.
@@ -110,12 +115,15 @@ these in workflows, do not hardcode:
 - `idp-gitops/policy/` — Rego/Conftest gate + unit tests (`conftest verify`).
 - `idp-core/` — the domain every surface shares: `config.ts`, `validate.ts`, `requestId.ts`,
   `generator.ts` (pure; computes HCL alignment so generated stacks are `fmt`-clean),
-  `inventory.ts`, `metrics.ts`, `compliance.ts`, `guardrails.ts`, plus the change layer
-  (`change.ts` port + `drivers/githubPr.ts` and `drivers/dryRun.ts`). Reads `platform/*`;
-  no GCP creds.
+  `metrics.ts`, `compliance.ts`, `guardrails.ts`, plus two ports: the change layer
+  (`change.ts` + `drivers/githubPr.ts`, `drivers/dryRun.ts`) and the read layer
+  (`inventory/` + `github.ts` reading `main` live, `file.ts` for offline work). Reads
+  `platform/*`; no GCP creds.
 - `idp-portal/` — the HTML surface (`src/server.ts`: form, `/buckets`, `/dashboard`) **and** the
-  JSON API (`src/api/`), served from one Express app. Opens PRs with a GitHub PAT
-  (`GITHUB_TOKEN`) for the form; the API uses the *caller's* bearer token instead.
+  JSON API (`src/api/`), served from one Express app. `src/inventory.ts` chooses the read source
+  from the environment. The server's PAT (`GITHUB_TOKEN`) opens PRs for the form and reads the
+  inventory; every *write* through the API uses the *caller's* bearer token instead, so "we act
+  as you" holds for everything that changes anything.
 - `contracts/openapi.yaml` — the API contract. Linted by redocly (`recommended-strict`;
   `redocly.yaml` records the accepted exceptions) and enforced at runtime on requests **and**
   responses, so a handler that breaks it fails the suite rather than shipping.
@@ -172,6 +180,10 @@ and showcase-ready from the repo alone.
   prevention = enforced, versioning on. Enforcement lives in the module; the policy gate is a
   second, independent check.
 - **Teams / ownership**: `idp-gitops/platform/teams.yaml` (fictional for the prototype).
+- **The inventory is the repo's `main` branch**, read live via the GitHub API — never a local
+  checkout, which can be behind. `IDP_INVENTORY=file` opts out for offline work and is what the
+  test suites pin. An unreadable inventory is a **502**; it never degrades to a stale or empty
+  list. See [`docs/design/inventory-source.md`](./docs/design/inventory-source.md).
 
 ## Working agreements
 
@@ -201,8 +213,10 @@ npm run lint:api               # redocly lint of contracts/openapi.yaml
 npm run generate -w idp-cli    # regenerate the CLI's types from the contract
 npm run typecheck && npm test
 
-# Run the platform (HTML UI + /v1 API on one port) and drive it from the CLI
-GITHUB_REPO=edoatley/idp-prototype npm run dev -w idp-portal
+# Run the platform (HTML UI + /v1 API on one port) and drive it from the CLI.
+# The inventory is read from the repo's default branch, so GITHUB_TOKEN is needed
+# for any read; IDP_INVENTORY=file falls back to the working tree for offline work.
+GITHUB_REPO=edoatley/idp-prototype GITHUB_TOKEN=$GITHUB_TOKEN npm run dev -w idp-portal
 export PATH="$PWD/node_modules/.bin:$PATH"   # npm ci links `idp` there; not on PATH by default
 IDP_TOKEN="$GITHUB_TOKEN" idp bucket list
 

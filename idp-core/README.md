@@ -13,14 +13,19 @@ src/validate.ts    # mirror the module's input validation, fail early
 src/requestId.ts   # unique request id (GCS label-value charset)
 src/generator.ts   # PURE: request -> stack files (main.tf + metadata.yaml)
 src/github.ts      # open a branch/commit/PR via the GitHub git-data API (plain fetch)
-src/inventory.ts   # READ: walk stacks/*/*/metadata.yaml -> the inventory
+src/inventory/     # READ: the inventory, behind an InventorySource port
+                   #   github.ts = the repo's default branch (default in the portal)
+                   #   file.ts   = a local checkout (offline work and tests)
 src/metrics.ts     # READ: apply success rate + lead time from the GitHub API
 src/compliance.ts  # READ: policy pass-rate + open `Drift:` Issues
 src/index.ts       # the public surface — consumers import from `idp-core`, never a deep path
 ```
 
 Two path defaults resolve to the GitOps repo at `../../idp-gitops/...` and are overridable via
-`PLATFORM_DIR` / `STACKS_DIR` (the tests use fixtures through those seams).
+`PLATFORM_DIR` / `STACKS_DIR` (the tests use fixtures through those seams). Those are the only
+environment variables this package reads: a source or driver that talks to GitHub is *given* its
+token, owner and repo, so the surface above decides what the domain talks to — see
+`idp-portal/src/inventory.ts`.
 
 ## Develop
 

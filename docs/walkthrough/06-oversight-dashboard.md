@@ -35,9 +35,10 @@ value.
 
 ## Reference links
 
-- Aggregation modules: [`metrics.ts`](../../idp-portal/src/metrics.ts),
-  [`compliance.ts`](../../idp-portal/src/compliance.ts),
-  [`inventory.ts`](../../idp-portal/src/inventory.ts)
+- Aggregation modules: [`metrics.ts`](../../idp-core/src/metrics.ts),
+  [`compliance.ts`](../../idp-core/src/compliance.ts),
+  [`inventory/`](../../idp-core/src/inventory) — these moved to `idp-core` when the domain was
+  extracted (#47), so every surface aggregates the same way
 - PRs: [#35 aggregation modules](https://github.com/edoatley/idp-prototype/pull/35),
   [#36 dashboard page](https://github.com/edoatley/idp-prototype/pull/36)
 
