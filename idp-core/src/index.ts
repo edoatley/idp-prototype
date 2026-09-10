@@ -6,7 +6,19 @@ export { loadConfig, defaultPlatformDir, type PlatformConfig, type Team } from '
 export { validate, validateSettings, type BucketRequest, type FieldError } from './validate';
 export { generateRequestId, type RequestIdOptions } from './requestId';
 export { generate, settingsOf, type GenerateContext, type GeneratedStack } from './generator';
-export { listBuckets, defaultStacksDir, type BucketRecord } from './inventory';
+export {
+  listBuckets,
+  defaultStacksDir,
+  FileInventory,
+  GitHubInventory,
+  clearInventoryCache,
+  InventoryUnavailableError,
+  STACKS_PREFIX,
+  type BucketRecord,
+  type InventorySource,
+  type FileInventoryOptions,
+  type GitHubInventoryOptions,
+} from './inventory';
 export { bucketNameFor, bucketNameFromDir, type Naming } from './naming';
 export { makeGh, GitHubError, type GhContext, type GhOptions } from './github';
 export { viewerLogin, clearIdentityCache } from './identity';

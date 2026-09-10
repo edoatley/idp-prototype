@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import { listBuckets, loadConfig, deliveryMetrics, compliance } from 'idp-core';
+import { loadConfig, deliveryMetrics, compliance } from 'idp-core';
 import { asyncRoute, notFound } from './problem';
 import { requireToken, repoFromEnv } from './auth';
+import { inventoryOf } from '../inventory';
 import { toBucket } from './mappers';
 
 // The JSON surface described by contracts/openapi.yaml. Every handler is a thin
@@ -24,20 +25,30 @@ export function apiRouter(): Router {
     res.json({ environments: cfg.environments, orgPrefix: cfg.orgPrefix, region: cfg.region });
   });
 
-  router.get('/v1/buckets', (req, res) => {
-    const { environment, team } = req.query as { environment?: string; team?: string };
-    const buckets = listBuckets(undefined, loadConfig().orgPrefix)
-      .filter((b) => !environment || b.environment === environment)
-      .filter((b) => !team || b.owning_team === team)
-      .map(toBucket);
-    res.json({ buckets });
-  });
+  // Reading the inventory can now fail (it reaches the base branch), so both
+  // handlers go through asyncRoute: express 4 does not catch a rejected promise,
+  // and a bare `throw notFound(...)` in an async handler would never reach
+  // problemHandler.
+  router.get(
+    '/v1/buckets',
+    asyncRoute(async (req, res) => {
+      const { environment, team } = req.query as { environment?: string; team?: string };
+      const buckets = (await inventoryOf(res).list())
+        .filter((b) => !environment || b.environment === environment)
+        .filter((b) => !team || b.owning_team === team)
+        .map(toBucket);
+      res.json({ buckets });
+    }),
+  );
 
-  router.get('/v1/buckets/:bucketId', (req, res) => {
-    const record = listBuckets(undefined, loadConfig().orgPrefix).find((b) => b.bucketName === req.params.bucketId);
-    if (!record) throw notFound(`No bucket ${req.params.bucketId}.`);
-    res.json(toBucket(record));
-  });
+  router.get(
+    '/v1/buckets/:bucketId',
+    asyncRoute(async (req, res) => {
+      const record = (await inventoryOf(res).list()).find((b) => b.bucketName === req.params.bucketId);
+      if (!record) throw notFound(`No bucket ${req.params.bucketId}.`);
+      res.json(toBucket(record));
+    }),
+  );
 
   // The oversight aggregates reach the GitHub API, so they need the caller's
   // token. Upstream failures are translated once, centrally, in problemHandler:

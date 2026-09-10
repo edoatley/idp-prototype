@@ -199,11 +199,10 @@ rule — different layers, one error shape.
 > `edo-dev-checkout-orders`; or read them as the record of PRs #60/#61/#62, since
 > `idp bucket list`, `describe`, `status` and any `--dry-run` work against whatever already exists.
 >
-> **After merging the create, `git pull` before the next command.** The API reads its inventory
-> from the working tree, so until you pull, a bucket the platform just provisioned reads as
-> `Error: Not found` — the resource exists, the checkout is stale. This is a real defect, not a
-> quirk: [`docs/design/inventory-source.md`](../design/inventory-source.md) is the agreed fix, and
-> this instruction goes away with it.
+> **No `git pull` is needed between the steps.** The API reads its inventory from the
+> repository's default branch, not from your working tree, so a bucket is visible to the next
+> command the moment its PR merges — however far behind your checkout happens to be. It did not
+> always: see [`docs/design/inventory-source.md`](../design/inventory-source.md).
 
 ```console
 $ idp bucket create --name orders --team checkout --env dev \

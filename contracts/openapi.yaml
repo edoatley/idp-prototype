@@ -57,9 +57,10 @@ paths:
       operationId: listBuckets
       summary: List buckets
       description: |
-        The inventory, read straight from the GitOps repo: every stack's `metadata.yaml`. There
-        is no database — the repo *is* the inventory, so this can never disagree with what is
-        actually declared.
+        The inventory, read live from the GitOps repository's `main` branch: every stack's
+        `metadata.yaml`. There is no database — the repo *is* the inventory, so this can never
+        disagree with what is actually declared. If the repository cannot be reached the read
+        fails (502) rather than answering from a local copy that may be out of date.
       tags: [buckets]
       security: []
       parameters:
@@ -85,6 +86,7 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/Bucket' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '502': { $ref: '#/components/responses/UpstreamUnavailable' }
 
     post:
       operationId: createBucket
@@ -136,6 +138,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Bucket' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '502': { $ref: '#/components/responses/UpstreamUnavailable' }
 
     patch:
       operationId: updateBucket
@@ -411,7 +414,9 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
 
     UpstreamUnavailable:
-      description: The GitHub API could not be reached, so the aggregate could not be computed.
+      description: |
+        The GitHub API could not be reached, so the answer could not be computed. Reads fail rather
+        than falling back to a local copy of the repository, which could be silently out of date.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

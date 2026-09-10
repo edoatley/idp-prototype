@@ -148,14 +148,10 @@ For each phase, note: what worked, friction/surprises, time spent, and — most 
   - **What is missing (the hardening backlog):** request lookup scans recent PRs rather than
     using the search API, so a very old request eventually falls off; there is no idempotency
     key, so a retried create relies on the stack-collision guard; `--wait` has no `--timeout`, so
-    a pipeline relies on its own job limit; **the API reads inventory from the working tree, so a
-    bucket it has just provisioned reads as `Error: Not found` until you `git pull`** — the
-    platform contradicting itself immediately after its own happy path, and the most serious of
-    these (agreed fix: read the base branch
-    directly, no datastore — see [`docs/design/inventory-source.md`](docs/design/inventory-source.md)); `requester` on create is still self-declared when
-    supplied (making it non-forgeable needs a second `submitted_by` field); and the API reads
-    inventory from a local checkout, so deploying it away from the repo needs a GitHub-backed
-    inventory source.
+    a pipeline relies on its own job limit; and `requester` on create is still self-declared when
+    supplied (making it non-forgeable needs a second `submitted_by` field). `loadConfig()` still
+    reads `platform/config.yaml` from disk and carries the staleness class described below — a
+    team added by PR is invisible until pull — at much lower frequency and harm.
 
 - **Phase 7 hardening — what reviewing the merged result found.** Four defects, none caught by
   the test suite, because **every test stubbed GitHub with a *successful* response**. The failure
@@ -194,6 +190,46 @@ For each phase, note: what worked, friction/surprises, time spent, and — most 
     on `pending_review` for ten minutes rather than inventing progress — because it polls the repo
     instead of tracking optimistic local state. A request tracker with its own database would have
     had to be *right* about that; this one cannot be wrong.
+
+- **"The repo IS the inventory" was a claim, not a fact — until it was made one.** The PRD said
+  it from the start; the code read a *copy* of the repo, whatever was last pulled. Walking the CLI
+  page found what that costs: `idp bucket create` provisioned `edo-dev-checkout-orders`, and the
+  very next command answered `Error: Not found`. **The platform denied a resource it had just
+  created, immediately after its own happy path.** See
+  [`docs/design/inventory-source.md`](docs/design/inventory-source.md).
+  - **The misdiagnosis is the more useful half.** `idp bucket list` and `ls idp-gitops/stacks/`
+    agreed, which *looked* like corroboration and was in fact two views of one stale source.
+    `gcloud` was the only independent check. Agreement between two readings of the same source is
+    worth nothing; it just feels like evidence.
+  - **The "no datastore" decision was upheld, deliberately.** A requests/inventory table was the
+    starting instinct. It would have been a second source of truth that can silently disagree with
+    the repo — which is the bug class being fixed, relocated rather than removed. The fix reads
+    the base branch live through an `InventorySource` port, the same seam shape as `ChangeDriver`.
+    If the platform ever has to run somewhere without repo access, that calculus changes, and the
+    port is exactly where a store would slot in.
+  - **The cache design is the part worth stealing.** Blobs are cached by **git SHA and nothing
+    else**: a SHA is the hash of its content, so a cached entry cannot be the wrong bytes — the
+    cache cannot go stale, by construction. The tree call is therefore *not* cached and carries no
+    TTL, only per-request memoisation. A five-second TTL would have reintroduced exactly this bug
+    with a smaller window, trading unconditional correctness for the probabilistic kind to save
+    one API call.
+  - **Every degradation had to be an error**, and a cold review found more of them than the design
+    did. The design named three — a truncated git tree (a partial inventory that *looks* complete),
+    an unreachable GitHub (must 502, never an empty list), and a rejected platform token (must not
+    surface as the caller's 401, since reads are open and the credential in play is ours). Reading
+    the finished code found three more, each the same shape: a 200 whose body is not a tree at all
+    filtered down to zero stacks and served as "no buckets"; a `metadata.yaml` that would not parse
+    escaped as an undocumented 500; and `/dashboard` rendered an empty inventory table *underneath*
+    its own error banner, at 200. The lesson is not "write more tests" — it is that
+    **degrade-to-empty is the default behaviour of almost every reasonable-looking line**
+    (`?? []`, a bare `.filter`, an untouched accumulator), so it has to be hunted for rather than
+    avoided by intent.
+  - **Slicing the work by risk, not by layer.** The first plan was "extract the port (no behaviour
+    change), then add the GitHub source and make it the default" — a first step that moves nothing
+    and a second that carries everything. Re-sliced: step one made the **failure path reachable and
+    tested** (the 502 exists, proven by deleting the contract entry and watching the test fail),
+    step two built the GitHub source opt-in and diffed it against the file source on the real repo,
+    step three flipped one default. The risky code was proven before anything depended on it.
 
 ### Security-scanning backlog (accepted trivy exceptions)
 

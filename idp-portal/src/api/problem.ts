@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { GitHubError, ChangeInFlightError } from 'idp-core';
+import { GitHubError, ChangeInFlightError, InventoryUnavailableError } from 'idp-core';
 
 // Errors in the RFC 9457 `application/problem+json` shape, as the contract
 // promises. One shape for every failure means a client writes one error path.
@@ -119,6 +119,11 @@ export function problemHandler(err: unknown, req: Request, res: Response, next: 
     problem = err;
   } else if (err instanceof GitHubError) {
     problem = fromGitHub(err);
+  } else if (err instanceof InventoryUnavailableError) {
+    // The inventory is read with the PLATFORM's credential, not the caller's, so
+    // a failure here is never the caller's fault — reporting it as a 401 would
+    // send someone off to check a token that is working fine.
+    problem = new ApiProblem(502, 'Upstream unavailable', err.message, undefined, '/problems/upstream-unavailable');
   } else if (err instanceof ChangeInFlightError) {
     // The platform's single-writer rule, raised by whichever layer noticed first.
     problem = new ApiProblem(409, 'Conflict', err.message, undefined, '/problems/request-in-flight');

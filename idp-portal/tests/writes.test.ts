@@ -17,6 +17,9 @@ beforeAll(() => {
   process.env.PLATFORM_DIR = path.resolve(__dirname, '../../idp-gitops/platform');
   process.env.STACKS_DIR = path.join(FIXTURES, 'stacks');
   process.env.GITHUB_REPO = 'edoatley/idp-prototype';
+  // Pin the offline source: these suites are credential-free, and a
+  // network-backed inventory would put a GitHub call in front of every read.
+  process.env.IDP_INVENTORY = 'file';
 });
 
 type Handler = { method: string; match: RegExp; status: number; body: unknown };

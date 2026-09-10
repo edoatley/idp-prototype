@@ -6,7 +6,6 @@ import {
   planCreate,
   planDelete,
   GitHubPrDriver,
-  listBuckets,
   deliveryMetrics,
   compliance,
   type PlatformConfig,
@@ -15,8 +14,10 @@ import {
   type BucketRecord,
   type DeliveryMetrics,
   type Compliance,
+  type InventorySource,
 } from 'idp-core';
 import { mountApi } from './api';
+import { inventoryOf } from './inventory';
 
 // The human surface: a form -> validate -> submit a change -> show the PR.
 // The change layer in idp-core does the actual work, so this file is only
@@ -67,8 +68,8 @@ function renderForm(config: PlatformConfig, values: Partial<BucketRequest & { re
   );
 }
 
-function renderInventory(): string {
-  const buckets = listBuckets();
+async function renderInventory(inventory: InventorySource): Promise<string> {
+  const buckets = await inventory.list();
   if (buckets.length === 0) {
     return page('Buckets', '<p>No buckets yet.</p><p><a href="/">Request one →</a></p>');
   }
@@ -98,14 +99,25 @@ function renderInventory(): string {
 const pct = (n: number | null): string => (n == null ? '—' : `${Math.round(n * 100)}%`);
 const mins = (n: number | null): string => (n == null ? '—' : `${n} min`);
 
-function renderDashboard(buckets: BucketRecord[], metrics: DeliveryMetrics | null, comp: Compliance | null, note: string): string {
-  const invRows = buckets.length
-    ? buckets
-        .map(
-          (b) => `<tr><td><code>${esc(b.bucketName)}</code></td><td>${esc(b.owning_team)}</td><td>${esc(b.environment)}</td><td>${esc(b.type)}</td><td>${esc(b.created_at)}</td></tr>`,
-        )
-        .join('')
-    : '<tr><td colspan="5">No buckets.</td></tr>';
+// `buckets: null` means the inventory could not be READ, which is a different
+// statement from "there are none" and must not render as one — an empty table
+// under an error banner still reads as "the platform contains nothing".
+function renderDashboard(
+  buckets: BucketRecord[] | null,
+  metrics: DeliveryMetrics | null,
+  comp: Compliance | null,
+  note: string,
+): string {
+  const invRows =
+    buckets === null
+      ? '<tr><td colspan="5" class="err">Inventory unavailable — see the note above.</td></tr>'
+      : buckets.length
+        ? buckets
+            .map(
+              (b) => `<tr><td><code>${esc(b.bucketName)}</code></td><td>${esc(b.owning_team)}</td><td>${esc(b.environment)}</td><td>${esc(b.type)}</td><td>${esc(b.created_at)}</td></tr>`,
+            )
+            .join('')
+        : '<tr><td colspan="5">No buckets.</td></tr>';
 
   const delivery = metrics
     ? `<ul>
@@ -201,18 +213,41 @@ export function createApp(): express.Express {
     }
   });
 
-  app.get('/buckets', (_req, res) => res.send(renderInventory()));
+  // The inventory read can fail now, and this surface has no problemHandler, so
+  // it says so rather than rendering an empty table — "no buckets" and "could not
+  // ask" must not look the same.
+  app.get('/buckets', async (_req, res) => {
+    try {
+      res.send(await renderInventory(inventoryOf(res)));
+    } catch (e) {
+      res
+        .status(502)
+        .send(page('Buckets', `<p class="err">Inventory unavailable: ${esc((e as Error).message)}</p><p><a href="/">Back</a></p>`));
+    }
+  });
 
   app.get('/dashboard', async (_req, res) => {
-    const buckets = listBuckets();
-    const gh = githubEnv();
-    if (!gh) {
-      return res.send(renderDashboard(buckets, null, null, 'Set GITHUB_TOKEN + GITHUB_REPO to see delivery + compliance metrics.'));
-    }
     // Aggregate on demand; keep each panel resilient so one API hiccup doesn't blank the page.
+    let buckets: BucketRecord[] | null = null;
     let metrics: DeliveryMetrics | null = null;
     let comp: Compliance | null = null;
     let note = '';
+    let ok = true;
+    try {
+      buckets = await inventoryOf(res).list();
+    } catch (e) {
+      // Left null, not emptied: the panel says it could not ask, and the status
+      // code says so too, so a monitor sees the failure the page describes.
+      ok = false;
+      note += `Inventory unavailable: ${(e as Error).message}. `;
+    }
+
+    const gh = githubEnv();
+    if (!gh) {
+      return res
+        .status(ok ? 200 : 502)
+        .send(renderDashboard(buckets, null, null, `${note}Set GITHUB_TOKEN + GITHUB_REPO to see delivery + compliance metrics.`));
+    }
     try {
       metrics = await deliveryMetrics(gh);
     } catch (e) {
@@ -223,12 +258,22 @@ export function createApp(): express.Express {
     } catch (e) {
       note += `Compliance unavailable: ${(e as Error).message}.`;
     }
-    res.send(renderDashboard(buckets, metrics, comp, note));
+    res.status(ok ? 200 : 502).send(renderDashboard(buckets, metrics, comp, note));
   });
 
   app.post('/buckets/decommission', async (req, res) => {
     const stackDir = String(req.body.stackDir ?? '').trim();
-    const record = listBuckets().find((b) => b.stackDir === stackDir);
+
+    let record: BucketRecord | undefined;
+    try {
+      // Guarded separately: an unreadable inventory is not the same as an unknown
+      // stack, and answering "unknown stack" to the former would be a lie.
+      record = (await inventoryOf(res).list()).find((b) => b.stackDir === stackDir);
+    } catch (e) {
+      return res
+        .status(502)
+        .send(page('Error', `<p class="err">Inventory unavailable: ${esc((e as Error).message)}</p><p><a href="/buckets">Back</a></p>`));
+    }
     if (!record) {
       return res.status(400).send(page('Error', `<p class="err">Unknown stack: ${esc(stackDir)}</p><p><a href="/buckets">Back</a></p>`));
     }
