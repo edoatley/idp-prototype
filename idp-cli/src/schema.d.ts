@@ -13,9 +13,10 @@ export interface paths {
         };
         /**
          * List buckets
-         * @description The inventory, read straight from the GitOps repo: every stack's `metadata.yaml`. There
-         *     is no database — the repo *is* the inventory, so this can never disagree with what is
-         *     actually declared.
+         * @description The inventory, read live from the GitOps repository's `main` branch: every stack's
+         *     `metadata.yaml`. There is no database — the repo *is* the inventory, so this can never
+         *     disagree with what is actually declared. If the repository cannot be reached the read
+         *     fails (502) rather than answering from a local copy that may be out of date.
          */
         get: operations["listBuckets"];
         put?: never;
@@ -557,7 +558,10 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description The GitHub API could not be reached, so the aggregate could not be computed. */
+        /**
+         * @description The GitHub API could not be reached, so the answer could not be computed. Reads fail rather
+         *     than falling back to a local copy of the repository, which could be silently out of date.
+         */
         UpstreamUnavailable: {
             headers: {
                 [name: string]: unknown;
@@ -608,6 +612,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            502: components["responses"]["UpstreamUnavailable"];
         };
     };
     createBucket: {
@@ -671,6 +676,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            502: components["responses"]["UpstreamUnavailable"];
         };
     };
     deleteBucket: {

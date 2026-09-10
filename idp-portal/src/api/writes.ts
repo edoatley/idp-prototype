@@ -1,7 +1,6 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import {
   loadConfig,
-  listBuckets,
   validate,
   validateSettings,
   generateRequestId,
@@ -20,6 +19,7 @@ import {
 } from 'idp-core';
 import { asyncRoute, badRequest, notFound, conflict } from './problem';
 import { requireToken, repoFromEnv } from './auth';
+import { inventoryOf } from '../inventory';
 
 // The write surface. Every route here does the same three things: build a
 // ChangeRequest through idp-core, refuse if something is already in flight, and
@@ -129,10 +129,12 @@ export function writeRouter(): Router {
     return { orgPrefix: cfg.orgPrefix, region: cfg.region };
   };
 
-  const buckets = () => listBuckets(undefined, loadConfig().orgPrefix);
+  // The source is per-request (see the middleware in server.ts), so the create
+  // path below can read the inventory twice without paying for it twice.
+  const buckets = (res: Response) => inventoryOf(res).list();
 
-  const findRecord = (bucketId: string): BucketRecord => {
-    const record = buckets().find((b) => b.bucketName === bucketId);
+  const findRecord = async (res: Response, bucketId: string): Promise<BucketRecord> => {
+    const record = (await buckets(res)).find((b) => b.bucketName === bucketId);
     if (!record) throw notFound(`No bucket ${bucketId}.`);
     return record;
   };
@@ -178,7 +180,7 @@ export function writeRouter(): Router {
 
       // A stack the platform already knows about is a conflict we can answer
       // immediately, without spending a round trip on GitHub.
-      if (buckets().some((b) => b.bucketName === change.target.bucketName)) {
+      if ((await buckets(res)).some((b) => b.bucketName === change.target.bucketName)) {
         throw conflict(`Bucket ${change.target.bucketName} already exists.`, '/problems/bucket-exists');
       }
 
@@ -189,7 +191,7 @@ export function writeRouter(): Router {
   router.patch(
     '/v1/buckets/:bucketId',
     asyncRoute(async (req, res) => {
-      const record = findRecord(req.params.bucketId!);
+      const record = await findRecord(res, req.params.bucketId!);
       const patch = req.body as SettingsPatch;
 
       raise(validateSettings(patch as Partial<BucketSettings>));
@@ -214,7 +216,7 @@ export function writeRouter(): Router {
   router.delete(
     '/v1/buckets/:bucketId',
     asyncRoute(async (req, res) => {
-      const record = findRecord(req.params.bucketId!);
+      const record = await findRecord(res, req.params.bucketId!);
       const change = planDelete({
         record,
         requester: await authorOf(req),

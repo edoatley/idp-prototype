@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { listBuckets } from '../src/inventory';
+import { FileInventory, listBuckets } from '../src/inventory';
 
 const STACKS = path.join(__dirname, 'fixtures/stacks');
 
@@ -26,5 +26,18 @@ describe('listBuckets', () => {
 
   it('returns [] when the stacks dir is absent', () => {
     expect(listBuckets(path.join(__dirname, 'fixtures/does-not-exist'))).toEqual([]);
+  });
+});
+
+describe('FileInventory', () => {
+  it('is the same inventory behind the port', async () => {
+    // The port must not change what a source reports, only how it is asked —
+    // otherwise the two implementations cannot be compared before switching.
+    await expect(new FileInventory({ root: STACKS }).list()).resolves.toEqual(listBuckets(STACKS));
+  });
+
+  it('carries the org prefix it was built with', async () => {
+    const [record] = await new FileInventory({ root: STACKS, orgPrefix: 'acme' }).list();
+    expect(record!.bucketName).toBe('acme-dev-checkout-orders');
   });
 });
